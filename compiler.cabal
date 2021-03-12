@@ -1,10 +1,8 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.0.
+-- This file has been generated from package.yaml by hpack version 0.34.4.
 --
 -- see: https://github.com/sol/hpack
---
--- hash: 3bee45d9e8148ddc06a05cb88040073374bf91d7fea14eba544e7a14a9433cd1
 
 name:           compiler
 version:        0.1.0.0
@@ -28,29 +26,52 @@ source-repository head
 library
   exposed-modules:
       Lib
+      Constructors
+      Pprint
+      Types
+      NameResolver
+      Literals
       SParser
+      Parser
   other-modules:
       Paths_compiler
   hs-source-dirs:
       src
+      src/types
+      src/utils
+      src/sexp
+      src/parser
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
   build-depends:
-                    base >=4.7 && <5
-                , megaparsec
-                , text >= 1.2.4.0
+      base >=4.7 && <5
+    , megaparsec
+    , mtl
+    , prettyprinter
+    , rio >=0.1.12.0
+    , text
+    , unbound-generics
   default-language: Haskell2010
 
 executable compiler-exe
   main-is: Main.hs
   other-modules:
+      Cli
       Paths_compiler
   hs-source-dirs:
       app
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  default-extensions:
+      NoImplicitPrelude AutoDeriveTypeable BangPatterns BinaryLiterals ConstraintKinds DataKinds DefaultSignatures DeriveDataTypeable DeriveFoldable DeriveFunctor DeriveGeneric DeriveTraversable DoAndIfThenElse EmptyDataDecls ExistentialQuantification FlexibleContexts FlexibleInstances FunctionalDependencies GADTs GeneralizedNewtypeDeriving InstanceSigs KindSignatures LambdaCase MonadFailDesugaring MultiParamTypeClasses MultiWayIf NamedFieldPuns NoImplicitPrelude OverloadedStrings PartialTypeSignatures PatternGuards PolyKinds RankNTypes RecordWildCards ScopedTypeVariables StandaloneDeriving TupleSections TypeFamilies TypeSynonymInstances ViewPatterns
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-                    base >=4.7 && <5
-                , compiler
-                , megaparsec
-                , text >= 1.2.4.0
+      base >=4.7 && <5
+    , compiler
+    , megaparsec
+    , mtl
+    , optparse-applicative
+    , prettyprinter
+    , rio >=0.1.12.0
+    , text
+    , unbound-generics
   default-language: Haskell2010
 
 test-suite compiler-test
@@ -60,10 +81,15 @@ test-suite compiler-test
       Paths_compiler
   hs-source-dirs:
       test
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-                    base >=4.7 && <5
-                , compiler
-                , megaparsec
-                , text >= 1.2.4.0
+      base >=4.7 && <5
+    , compiler
+    , hspec
+    , megaparsec
+    , mtl
+    , prettyprinter
+    , rio >=0.1.12.0
+    , text
+    , unbound-generics
   default-language: Haskell2010

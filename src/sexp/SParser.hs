@@ -1,41 +1,29 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeFamilies, DataKinds, ConstraintKinds #-}
-{-# LANGUAGE GADTs, EmptyCase, StandaloneDeriving #-}
-{-# LANGUAGE TypeOperators, PatternSynonyms #-}
-{-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances, FlexibleContexts, OverloadedStrings #-}
 -- | Parses S-expressions into its own datatype
 
-module SParser (SParser.parse, Sexp, Parser) where
+module SParser (Sexp(..), SParser.runParser, Parser) where
 
+import RIO
 import Text.Megaparsec as M
-import Data.Void as V
 import Text.Megaparsec.Char
+
 import qualified Text.Megaparsec.Char.Lexer as L
 import Control.Applicative as A
 
 
-type Parser = Parsec Void String
+-------------------------------------------------------------------------------
+-- Types
+-------------------------------------------------------------------------------
+type Parser = Parsec Void Text
 
-data SexpA d =
-    AtomA (Xa d) String
-  | ListA (Xl d) [SexpA d]
+data Sexp =
+    Atom Text
+  | List [Sexp]
+  deriving (Show)
 
-type Sexp = SexpA UD
-
--- extension descriptors and type families
-data UD
-type family Xa d
-type family Xl d
-type instance Xa UD = Void
-type instance Xl UD = Void
-
-pattern Atom str <- AtomA _ str
-  where Atom str = AtomA UD str
-
-pattern List list <- ListA _ list
-  where List list = ListA UD list
-
-
+-------------------------------------------------------------------------------
+-- Parser
+-------------------------------------------------------------------------------
 sc :: Parser ()
 sc = L.space
   space1
@@ -45,14 +33,14 @@ sc = L.space
 symbol = L.symbol sc
 lexeme = L.lexeme sc
 
-is_atom :: Char -> Bool
-is_atom char = not $ elem char ['\n', '\t', '(', ')', ' ']
+isAtom :: Char -> Bool
+isAtom = (`notElem` ['\n', '\t', '(', ')', ' '])
 
-raw_atom :: Parser String
-raw_atom = takeWhile1P (Just "S-expression atom character") is_atom
+rawAtom :: Parser Text
+rawAtom = takeWhile1P (Just "S-expression atom character") isAtom
 
 atom :: Parser Sexp
-atom = Atom <$> lexeme raw_atom
+atom = Atom <$> lexeme rawAtom
 
 list :: Parser Sexp
 list = (List <$> parens (M.some list)) <|> atom
@@ -60,12 +48,13 @@ list = (List <$> parens (M.some list)) <|> atom
 parens :: Parser a -> Parser a
 parens = between lpar rpar
 
+lpar :: Parser Text
 lpar = symbol "("
+rpar :: Parser Text
 rpar = symbol ")"
 
-parse :: Parser Sexp
-parse = list
+sexpParser :: Parser Sexp
+sexpParser = list
 
-
--- Predicates for datatypes
-
+runParser :: FilePath -> Text -> Either (ParseErrorBundle Text Void) Sexp
+runParser = M.parse sexpParser

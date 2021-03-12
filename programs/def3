@@ -1,0 +1,24 @@
+(define (inc x)
+  (+ x 1))
+
+(define (list . l)
+  l)
+
+(define (map l f)
+  (if (> (length l) 0)
+      (cons (f (car l)) (map (cdr l) f))
+      '()))
+
+(define (rcons fst snd)
+  (cons snd fst))
+
+(define (foldl f acc lst)
+  (if (null? lst)
+     acc
+     (foldl f (f acc (car lst)) (cdr lst))))
+
+(define (reverse lst)
+  (foldl rcons '() lst))
+
+(define l (list 1 2 3 4 5))
+(reverse l)

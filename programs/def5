@@ -1,0 +1,16 @@
+(define (inc x)
+  (+ x 1))
+
+(define (list . x)
+  x)
+
+(define (map l f)
+  (if (> (length l) 1)
+     (cons (f (car l)) (cdr l))
+     (f (car l))))
+
+(define x (list 1 2 3 4 5))
+this errors !
+(define y (map x inc))
+
+(display y)

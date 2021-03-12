@@ -1,0 +1,136 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings  #-}
+
+-- | Pretty Printer
+
+module Pprint where
+
+import RIO
+import Types
+import RIO.Text as T
+import Data.Text.Prettyprint.Doc
+import qualified Unbound.Generics.LocallyNameless as Un
+import Constructors
+
+
+-------------------------------------------------------------------------------
+-- Types
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+-- Combinators
+-------------------------------------------------------------------------------
+ind :: Int
+ind = 2
+
+inParens :: Doc ann -> Doc ann
+inParens d = surround d "(" ")"
+
+inQuotes :: Doc ann -> Doc ann
+inQuotes = dquotes
+
+quoted :: Doc ann -> Doc ann
+quoted  = (squote<>)
+
+mkList :: [Doc ann] -> Doc ann
+mkList = inParens . sep
+
+vertDocs :: [Doc ann] -> Doc ann
+vertDocs = align . vsep
+
+mkVertList :: [Doc ann] -> Doc ann
+mkVertList = inParens . vertDocs
+
+doIndent :: Doc ann -> Doc ann
+doIndent d = nest ind (line <> d)
+
+mkLet :: [(Name, Expr)] -> BodyKind -> Doc ann
+mkLet bindings body =
+  inParens $ "let" <+> mkBinding bindings <> pretty body
+  where
+    mkBind :: (,) Name Expr -> Doc ann
+    mkBind (n, e) = mkList [pretty n, pretty e]
+    mkBinding ::  [(Name, Expr)] -> Doc ann
+    mkBinding bnds = mkVertList $ fmap mkBind bnds
+
+mkParamList :: [Name] -> Doc ann
+mkParamList names = mkList $ pretty <$> names
+
+mkParamListDot :: [Name] -> Name -> Doc ann
+mkParamListDot ns n = mkList $
+  (pretty <$> ns) ++ [".", pretty n]
+
+-------------------------------------------------------------------------------
+-- Type class and instances
+-------------------------------------------------------------------------------
+
+instance Pretty Literal where
+  pretty (LitBool True) =  "#t"
+  pretty (LitBool False) = "#t"
+  pretty (LitInt x) = unsafeViaShow x
+  pretty (LitChar c) =
+    pretty $ getChar c
+    where
+      getChar :: Char -> Text
+      getChar ' ' = "#\\" <> "space"
+      getChar '\n' = "#\\" <> "newline"
+      getChar c = snoc "#\\" c
+  pretty (LitString str) = inQuotes $ unsafeViaShow str
+  pretty (LitSymbol sym) = unsafeViaShow sym
+  pretty (LitList list) = mkList $ pretty <$> list
+  pretty LitNil = inParens emptyDoc
+  pretty (LitVector vec) = "#" <> pretty (LitList vec)
+  pretty LitUnspecified  = "unspecified"
+
+instance Pretty BodyKind where
+  pretty (BSingle expr) =  doIndent $ pretty expr
+  pretty (BMultiple exprs) =  doIndent $ align (vsep $ pretty <$> exprs)
+
+instance Pretty Name where
+  pretty name = pretty $ T.pack $  Un.name2String name
+
+instance Pretty Let where
+  pretty (Let letbnd) =  Un.runFreshM $ do
+    (bindings, body) <- Un.unbind letbnd
+    let bnds = (fmap . fmap) (\(Un.Embed e) -> e) bindings
+    return $ mkLet bnds body
+
+instance Pretty Lambda where
+  pretty (Lam bnd) = Un.runFreshM $ do
+    (ps, body) <- Un.unbind bnd
+    return $ inParens ("lambda" <+> mkParamList ps <> pretty body)
+
+  pretty (LamDot bnd) = Un.runFreshM $ do
+    ((ps, p), body) <- Un.unbind bnd
+    return $ inParens ("lambda" <+> mkParamList ps <+> "." <+> pretty p <> pretty body)
+
+  pretty (LamList bnd) = Un.runFreshM $ do
+    (p, body) <- Un.unbind bnd
+    return $ inParens ("lambda" <+> pretty p <> pretty body)
+
+instance Pretty Application where
+  pretty (AppPrim n es) =
+    inParens (pretty n <> doIndent (vertDocs $ pretty <$> es))
+  pretty (AppLam e es) =
+    inParens (pretty e <> doIndent (vertDocs $ pretty <$> es))
+
+
+instance Pretty Expr where
+  pretty (EApp app) = pretty app
+  pretty (EVar name) = pretty name
+  pretty (ELam lam) = pretty lam
+  pretty (ELet lt) = pretty lt
+  pretty (EIf tst thn els) =
+    inParens ("if" <> doIndent (pretty tst) <> doIndent (pretty thn) <> doIndent (pretty els))
+  pretty (ESet n e) =
+    inParens ("set!" <> doIndent (pretty n) <> doIndent (pretty e))
+  pretty (ELit lit) = pretty lit
+  pretty (ESynExt _) = "Syntactic Extension"
+
+
+
+-- testAst :: Expr
+-- testAst =
+--   makeLet
+--     [(Un.s2n "x", ELit (LitInt 42)), (Un.s2n "y", ELit (LitInt 42))]
+--     (makePrimApp "+" [EVar (Un.s2n "x"), ELit (LitInt 42)])

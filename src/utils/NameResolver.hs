@@ -1,13 +1,15 @@
 -- |
 
-module Utils where
+module NameResolver (getCname, isPrim) where
+
+import RIO
 import Data.List as L
 import Data.Maybe as M
-import Data.IORef as IOR
 
 prims = [
   -- Type predicates
   ("cons?", "consp", 1), ("null?", "nullp", 1), ("list?", "listp", 1), ("vector?", "vectorp", 1), ("procedure?", "procedurep", 1), ("number?", "numberp", 1),
+
   ("char?", "charp", 1), ("boolean?", "booleanp", 1), ("symbol?", "symbolp", 1), ("string?", "stringp", 1), ("integer?", "integerp", 1),
   -- Object Equality
   ("eq?", "eqp", 2), ("eqv?", "eqp", 2), ("equal?", "equalp", 2),
@@ -27,16 +29,10 @@ prims = [
   ("display", "display", 1)
   ]
 
-is_prim :: String -> Bool
-is_prim str = L.any ((str==) . (\(n, _, _) -> n)) prims
+isPrim :: String -> Bool
+isPrim str = L.any ((str==) . (\(n, _, _) -> n)) prims
 
-get_cname :: String -> String
-get_cname str = M.fromJust $ do
-  (_, cname, _) <- L.find ((str==) . (\(_, cn, _) -> cn)) prims
+getCname :: String -> String
+getCname str = M.fromJust $ do
+  (_, cname, _) <- L.find ((str==) . (\(n, _, _) -> n)) prims
   return cname
-
-gensym :: IORef Int -> IO String
-gensym counter = do
-  count <- IOR.readIORef counter
-  IOR.modifyIORef counter (+1)
-  return $ "gen" <> show count

@@ -1,30 +1,31 @@
 -- |
-
+{-# LANGUAGE OverloadedStrings  #-}
 module Literals where
 
+import RIO
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 import Control.Applicative as A
 import SParser
 
-string_literal :: Parser String
-string_literal = char '"' >> manyTill L.charLiteral (char '"')
+stringLiteral :: Parser String
+stringLiteral = char '"' >> manyTill L.charLiteral (char '"')
 
-char_literal :: Parser Char
-char_literal = string "#\\" >> (asciiChar <|> newline <|> space)
+charLiteral :: Parser Char
+charLiteral = string "#\\" >> (asciiChar <|> newline <|> space)
   where
     newline = string "newline" >> return '\n'
     space = string "space" >> return ' '
 
-int_literal :: Parser Int
-int_literal = L.signed A.empty L.decimal
+intLiteral :: Parser Int
+intLiteral = L.signed A.empty L.decimal
 
-float_literal :: Parser Float
-float_literal = L.signed A.empty L.float
+floatLiteral :: Parser Float
+floatLiteral = L.signed A.empty L.float
 
-bool_literal :: Parser Bool
-bool_literal = true <|> false
+boolLiteral :: Parser Bool
+boolLiteral = true <|> false
   where
     true = string "#\t" >> return True
     false = string "#\f" >> return False

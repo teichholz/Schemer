@@ -1,0 +1,4 @@
+(let ((x 42))
+  (begin
+    (set! x 42)
+    (display x)))

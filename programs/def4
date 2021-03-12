@@ -1,0 +1,6 @@
+(define (list . x)
+  x)
+
+(define x (list 1 2 3 4 5))
+
+(display x)

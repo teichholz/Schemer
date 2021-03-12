@@ -1,0 +1,4 @@
+(define (f x y) (+ x y))
+(define (inc x) (+ x 1))
+
+(inc (f 1 2))

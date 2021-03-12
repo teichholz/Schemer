@@ -1,0 +1,2 @@
+(letrec ((add (lambda (x) (+ x 20))))
+  (add 22))

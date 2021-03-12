@@ -1,0 +1,3 @@
+(case (* 2 3)
+    ((2 3) 'prime)
+    ((1 4) 'composite))

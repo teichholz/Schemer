@@ -3,7 +3,14 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: unbound-generics-0.4.1@sha256:5020e8397dad610846cbd5bdc855e20edf9b9cb74f93f6c09488bba21118c409,5485
+    pantry-tree:
+      size: 3046
+      sha256: 3f6a21308ef8d6e6127448715671ef4cd21d71b81198c77d58f55008aee988f8
+  original:
+    hackage: unbound-generics-0.4.1@sha256:5020e8397dad610846cbd5bdc855e20edf9b9cb74f93f6c09488bba21118c409,5485
 snapshots:
 - completed:
     size: 532377

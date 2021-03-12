@@ -1,0 +1,4 @@
+(define (f a b p)
+  (apply p (cons a (cons b '()))))
+
+(+ 1 2)
