@@ -27,6 +27,7 @@ library
   exposed-modules:
       Lib
       Constructors
+      Exceptions
       Pprint
       Types
       NameResolver
@@ -47,6 +48,7 @@ library
     , megaparsec
     , mtl
     , prettyprinter
+    , regex-tdfa
     , rio >=0.1.12.0
     , text
     , unbound-generics
@@ -60,7 +62,7 @@ executable compiler-exe
   hs-source-dirs:
       app
   default-extensions:
-      NoImplicitPrelude AutoDeriveTypeable BangPatterns BinaryLiterals ConstraintKinds DataKinds DefaultSignatures DeriveDataTypeable DeriveFoldable DeriveFunctor DeriveGeneric DeriveTraversable DoAndIfThenElse EmptyDataDecls ExistentialQuantification FlexibleContexts FlexibleInstances FunctionalDependencies GADTs GeneralizedNewtypeDeriving InstanceSigs KindSignatures LambdaCase MonadFailDesugaring MultiParamTypeClasses MultiWayIf NamedFieldPuns NoImplicitPrelude OverloadedStrings PartialTypeSignatures PatternGuards PolyKinds RankNTypes RecordWildCards ScopedTypeVariables StandaloneDeriving TupleSections TypeFamilies TypeSynonymInstances ViewPatterns
+      NoImplicitPrelude AutoDeriveTypeable BangPatterns BinaryLiterals ConstraintKinds DataKinds DefaultSignatures DeriveDataTypeable DeriveFoldable DeriveFunctor DeriveGeneric DeriveTraversable DoAndIfThenElse EmptyDataDecls ExistentialQuantification FlexibleContexts FlexibleInstances FunctionalDependencies GADTs GeneralizedNewtypeDeriving InstanceSigs KindSignatures LambdaCase MonadFailDesugaring MultiParamTypeClasses MultiWayIf NamedFieldPuns NoImplicitPrelude OverloadedStrings PartialTypeSignatures PatternGuards PolyKinds RankNTypes RecordWildCards ScopedTypeVariables StandaloneDeriving TupleSections TypeFamilies TypeSynonymInstances ViewPatterns TypeApplications
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
@@ -69,6 +71,7 @@ executable compiler-exe
     , mtl
     , optparse-applicative
     , prettyprinter
+    , regex-tdfa
     , rio >=0.1.12.0
     , text
     , unbound-generics
@@ -89,6 +92,7 @@ test-suite compiler-test
     , megaparsec
     , mtl
     , prettyprinter
+    , regex-tdfa
     , rio >=0.1.12.0
     , text
     , unbound-generics

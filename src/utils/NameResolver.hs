@@ -1,8 +1,13 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 -- |
 
 module NameResolver (getCname, isPrim) where
 
 import RIO
+import Types (Name)
+import RIO.Text
+import qualified Unbound.Generics.LocallyNameless as Un
 import Data.List as L
 import Data.Maybe as M
 
@@ -29,8 +34,20 @@ prims = [
   ("display", "display", 1)
   ]
 
-isPrim :: String -> Bool
-isPrim str = L.any ((str==) . (\(n, _, _) -> n)) prims
+class IsVarName a where
+  getName :: a -> Text
+
+instance IsVarName String where
+  getName a = pack a
+
+instance IsVarName Text where
+  getName = id
+
+instance IsVarName Name where
+  getName = getName . Un.name2String
+
+isPrim :: (IsVarName a) => a -> Bool
+isPrim a = L.any ((getName a ==) . (\(n, _, _) -> getName n)) prims
 
 getCname :: String -> String
 getCname str = M.fromJust $ do

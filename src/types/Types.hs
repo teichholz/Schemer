@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DeriveDataTypeable, DeriveGeneric, MultiParamTypeClasses #-}
 -- | Compiler types
@@ -46,15 +47,15 @@ data ScSyn
 instance Un.Alpha ScSyn
 
 data Decl
-  = FunDecl Params BodyKind
-  | FunDotDecl Params BodyKind
-  | FunListDecl Params BodyKind
+  = FunDecl Name Params BodyKind
+  | FunDotDecl Name Params Param BodyKind
+  | FunListDecl Name Param BodyKind
   | VarDecl Name Expr
   deriving (Show, Generic, Typeable)
 
 instance Un.Alpha Decl
 
-
+type Param = Name
 type Params = [Name]
 
 data Expr
@@ -64,6 +65,8 @@ data Expr
   | ELet Let           -- (let ((x 21)) (+ x x))
   | EIf Expr Expr Expr  -- (if test then else)
   | ESet Name Expr
+  | EApply Expr Expr
+  | ECallCC Expr
   | ELit Literal -- '(1 2 3 4), ...
   | ESynExt SynExtension -- makros
   deriving (Show, Generic, Typeable)
@@ -115,8 +118,8 @@ newtype Let
 instance Un.Alpha Let
 
 data BodyKind
-  = BSingle Expr
-  | BMultiple [Expr]
+  = BSingle ScSyn
+  | BMultiple [ScSyn]
   deriving (Show, Generic, Typeable)
 
 instance Un.Alpha BodyKind
@@ -125,7 +128,7 @@ instance Un.Alpha BodyKind
 data Literal
   = LitString String
   | LitSymbol String
-  | LitInt Integer
+  | LitInt Int
   | LitFloat Float
   | LitChar Char
   | LitBool Bool
@@ -146,26 +149,66 @@ data Core
 -- Traversal
 -------------------------------------------------------------------------------
 
-descend :: (Expr -> Expr) -> Expr -> Expr
-descend f exp = Un.runFreshM (descendM (return . f) exp)
+-- Descender gives acces to the function needed to transform declaration or expressions
+data (a :*: b) = D a b
+type Descender m = (Expr -> m Expr) :*: (Decl -> m Decl)
 
-descendM :: (Monad m, Un.Fresh m) => (Expr -> m Expr) -> Expr -> m Expr
-descendM f e = case e of
-   EApp app -> EApp <$> descendApplicationM f app
-   EVar name -> pure (EVar name)
-   ELam lambda -> ELam <$> descendLambdaM f lambda
-   ELet letb -> ELet <$> descendLetM f letb
-   EIf tst thn els -> EIf <$> descendM f tst <*> descendM f thn <*> descendM f els
-   ELit lit -> f $ ELit lit
+makeDesc :: Monad m => (Expr -> m Expr) -> Descender m
+makeDesc = makeDescExpr
+
+makeDescExpr :: Monad m => (Expr -> m Expr) -> Descender m
+makeDescExpr f = D f return
+
+makeDescDecl :: Monad m => (Decl -> m Decl) -> Descender m
+makeDescDecl = D return
+
+makeDescender :: (Expr -> m Expr) -> (Decl -> m Decl) -> Descender m
+makeDescender = D
+
+mapDecl :: Descender m -> Decl -> m Decl
+mapDecl (D _ f) = f
+
+mapExpr :: Descender m -> Expr -> m Expr
+mapExpr (D f _) = f
+
+-- descend :: (Expr -> Expr) -> Expr -> Expr
+-- descend f exp = Un.runFreshM (descendExprM (return . f) exp)
+
+
+
+
+descendM :: (Monad m, Un.Fresh m) => Descender m -> ScSyn -> m ScSyn
+descendM f syn = case syn of
+  ScExpr e -> ScExpr <$> descendExprM f e
+  ScDecl d -> ScDecl <$> descendDeclM f d
+
+descendDeclM :: (Monad m, Un.Fresh m) => Descender m -> Decl -> m Decl
+descendDeclM f d = mapDecl f =<< case d of
+  VarDecl n e -> VarDecl n <$> descendExprM f e
+  FunDecl n p b -> FunDecl n p <$> descendBodyKindM f b
+  FunDotDecl n ps p b -> FunDotDecl n ps p <$> descendBodyKindM f b
+  FunListDecl n p b -> FunListDecl n p <$> descendBodyKindM f b
+
+descendExprM :: (Monad m, Un.Fresh m) => Descender m -> Expr -> m Expr
+descendExprM f e = mapExpr f =<< case e of
+  EApp app -> EApp <$> descendApplicationM f app
+  EVar name -> return $ EVar name
+  ELam lambda -> ELam <$> descendLambdaM f lambda
+  ELet letb -> ELet <$> descendLetM f letb
+  EIf tst thn els -> EIf <$> descendExprM f tst <*> descendExprM f thn <*> descendExprM f els
+  ESet name expr -> ESet name <$> descendExprM f expr
+  EApply expr1 expr2 -> liftA2 EApply (descendExprM f expr1) (descendExprM f expr2)
+  ECallCC expr -> ECallCC <$> descendExprM f expr
+  ELit lit -> return $ ELit lit
    -- ESynExt ext -> descendSynExt ext
 
-descendApplicationM :: (Monad m, Un.Fresh m) => (Expr -> m Expr) -> Application -> m Application
+descendApplicationM :: (Monad m, Un.Fresh m) => Descender m -> Application -> m Application
 descendApplicationM f e = case e of
-  AppPrim primName expr -> AppPrim primName <$> mapM (descendM f) expr
-  AppLam exprhd expr -> AppLam <$> descendM f exprhd <*> mapM (descendM f) expr
+  AppPrim primName expr -> AppPrim primName <$> mapM (descendExprM f) expr
+  AppLam exprhd expr -> AppLam <$> descendExprM f exprhd <*> mapM (descendExprM f) expr
 
 
-descendLambdaM :: (Monad m, Un.Fresh m) => (Expr -> m Expr) -> Lambda -> m Lambda
+descendLambdaM :: (Monad m, Un.Fresh m) => Descender m -> Lambda -> m Lambda
 descendLambdaM f e = case e of
   Lam bnd -> do
     (pats, body) <- Un.unbind bnd
@@ -177,52 +220,52 @@ descendLambdaM f e = case e of
     (pat, body) <- Un.unbind bnd
     LamList . Un.bind pat <$> descendBodyKindM f body
 
-descendBodyKindM :: (Monad m, Un.Fresh m) => (Expr -> m Expr) -> BodyKind -> m BodyKind
+descendBodyKindM :: (Monad m, Un.Fresh m) => Descender m -> BodyKind -> m BodyKind
 descendBodyKindM f e = case e of
   BSingle e -> BSingle <$> descendM f e
   BMultiple es -> BMultiple <$> sequence (descendM f <$> es)
 
 
-descendLetM :: (Monad m, Un.Fresh m) => (Expr -> m Expr) -> Let -> m Let
+descendLetM :: (Monad m, Un.Fresh m) => Descender m -> Let -> m Let
 descendLetM f e = case e of
   Let bnd -> do
     (patlist, bodyKind) <- Un.unbind bnd
     let newpatlist =
-          (fmap . fmap . fmap) Un.Embed $ (mapM . mapM) f (fmap (\(n, Un.Embed e) -> (n, e)) patlist)
+         (fmap . fmap) Un.Embed <$>
+         (mapM . mapM) (descendExprM f) (fmap (\ (n, Un.Embed e) -> (n, e)) patlist)
     let newbodyKind = descendBodyKindM f bodyKind
-    Let <$> (Un.bind <$> newpatlist <*> newbodyKind)
+    Let <$> liftA2 Un.bind newpatlist newbodyKind
 
 
-descendSynExtensionM :: (Monad m, Un.Fresh m) => (Expr -> m Expr) -> SynExtension -> m SynExtension
+descendSynExtensionM :: (Monad m, Un.Fresh m) => Descender m -> SynExtension -> m SynExtension
 descendSynExtensionM f e = case e of
-  EOr mes -> EOr <$> (mapM . mapM) (descendM f) mes
-  EAnd mes -> EAnd <$> (mapM . mapM) (descendM f) mes
-  EBegin es -> EBegin <$> mapM (descendM f) es
+  EOr mes -> EOr <$> (mapM . mapM) (descendExprM f) mes
+  EAnd mes -> EAnd <$> (mapM . mapM) (descendExprM f) mes
+  EBegin es -> EBegin <$> mapM (descendExprM f) es
   ECond condBody ->
     do
       let ml = sequence $ do
             (e, bodyKind) <- condBody
-            return $ (,) <$> descendM f e <*> descendBodyKindM f bodyKind
+            return $ (,) <$> descendExprM f e <*> descendBodyKindM f bodyKind
       ECond <$> ml
   ECase cse caseBody ->
     do
       let ml = sequence $ do
             (e, bodyKind) <- caseBody
             return $ (e,) <$> descendBodyKindM f bodyKind
-      ECase <$> descendM f cse <*> ml
+      ECase <$> descendExprM f cse <*> ml
   LetStar bindings body -> do
-    let newpatlist = (mapM . mapM) f bindings
+    let newpatlist = (mapM . mapM) (descendExprM f) bindings
     let newbodyKind = descendBodyKindM f body
     LetStar <$> newpatlist <*> newbodyKind
 
   LetRec bindings body -> do
-    let newpatlist = (mapM . mapM) f bindings
+    let newpatlist = (mapM . mapM) (descendExprM f) bindings
     let newbodyKind = descendBodyKindM f body
     LetRec <$> newpatlist <*> newbodyKind
 
-compose
-  :: (Expr -> Expr)
-  -> (Expr -> Expr)
-  -> (Expr -> Expr)
-compose f g = descend (f . g)
-
+-- compose
+--   :: (Expr -> Expr)
+--   -> (Expr -> Expr)
+--   -> (Expr -> Expr)
+-- compose f g = descend (f . g)
