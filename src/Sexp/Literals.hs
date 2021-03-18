@@ -1,6 +1,6 @@
 -- | Literals
 {-# LANGUAGE OverloadedStrings  #-}
-module Literals where
+module Sexp.Literals where
 
 import RIO
 
@@ -8,8 +8,9 @@ import Text.Megaparsec as M
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 import Control.Applicative as A
-import SParser
+import Sexp.Parser (Parser)
 import RIO.Partial (fromJust)
+
 import Text.Regex.TDFA as Re
 
 -- Not R5RS conforming
@@ -28,7 +29,7 @@ isString :: Text -> Bool
 isString = (Re.=~ ("^\\\"[a-zA-Z0-9 ]*\\\"$" :: String))
 
 isChar :: Text -> Bool
-isChar = A.liftA3 (or3)
+isChar = A.liftA3 or3
          (Re.=~ ("^#\\\\.$" :: String))
          (Re.=~ ("^#\\\\newline$" :: String))
          (Re.=~ ("^#\\\\space$" :: String))

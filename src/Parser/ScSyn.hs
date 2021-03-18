@@ -3,31 +3,31 @@
 {-# LANGUAGE LambdaCase, OverloadedStrings #-}
 -- | Parsing Sexp into Expr
 
-module Parser where
+module Parser.ScSyn (runParser) where
 
 import RIO
 import RIO.Text (unpack)
-import NameResolver (isPrim)
+import Utils.NameResolver (isPrim)
 import RIO.List.Partial (head, tail)
 import RIO.State
-import SParser (Sexp(..))
-import Types
-import Constructors
-import Exceptions
-import Literals
+import Sexp.Parser (Sexp(..))
+import Types.Types
+import Types.Constructors
+import Types.Exceptions
+import Sexp.Literals
 
 data Args
   = Normal [Name]
   | Dotted [Name] Name
   deriving (Show)
 
-parse :: Sexp -> IO ScSyn
-parse = \case
+runParser :: Sexp -> IO ScSyn
+runParser = \case
   List(Atom "define":tl) -> makeDecl <$> parseDecl tl
   e -> makeExp <$> parseExpr e
 
 parseL :: [Sexp] -> IO [ScSyn]
-parseL = mapM parse
+parseL = mapM runParser
 
 parseDecl :: [Sexp] -> IO Decl
 parseDecl = \case

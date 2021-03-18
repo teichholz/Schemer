@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleInstances, FlexibleContexts, OverloadedStrings #-}
 -- | Parses S-expressions into its own datatype
 
-module SParser (Sexp(..), SParser.runParser, Parser) where
+module Sexp.Parser (Sexp(..), Sexp.Parser.runParser, Parser) where
 
 import RIO
 import Text.Megaparsec as M

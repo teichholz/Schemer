@@ -1,12 +1,12 @@
 -- |
 
-module Constructors where
+module Types.Constructors where
 
 import RIO
 import RIO.Text (unpack, pack)
-import Types
+import Types.Types
 import qualified Unbound.Generics.LocallyNameless as Un
-import qualified NameResolver as NR
+import qualified Utils.NameResolver as NR
 
 -------------------------------------------------------------------------------
 -- Constructors

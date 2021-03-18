@@ -3,14 +3,13 @@
 
 -- | Pretty Printer
 
-module Pprint where
+module Types.Pprint (pretty) where
 
 import RIO
-import Types
+import Types.Types
 import RIO.Text as T
 import Data.Text.Prettyprint.Doc
 import qualified Unbound.Generics.LocallyNameless as Un
-import Constructors
 
 
 -------------------------------------------------------------------------------
@@ -102,7 +101,7 @@ instance Pretty Lambda where
 
   pretty (LamDot bnd) = Un.runFreshM $ do
     ((ps, p), body) <- Un.unbind bnd
-    return $ inParens ("lambda" <+> mkParamList ps <+> "." <+> pretty p <> pretty body)
+    return $ inParens ("lambda" <+> mkParamListDot ps p <> pretty body)
 
   pretty (LamList bnd) = Un.runFreshM $ do
     (p, body) <- Un.unbind bnd
@@ -114,6 +113,9 @@ instance Pretty Application where
   pretty (AppLam e es) =
     inParens (pretty e <> doIndent (vertDocs $ pretty <$> es))
 
+instance Pretty ScSyn where
+  pretty (ScDecl d) = pretty d
+  pretty (ScExpr e) = pretty e
 
 instance Pretty Expr where
   pretty (EApp app) = pretty app
@@ -126,6 +128,16 @@ instance Pretty Expr where
     inParens ("set!" <> doIndent (pretty n) <> doIndent (pretty e))
   pretty (ELit lit) = pretty lit
   pretty (ESynExt _) = "Syntactic Extension"
+
+instance Pretty Decl where
+  pretty (VarDecl n e) =
+    inParens ("define" <+> vertDocs [pretty n, pretty e])
+  pretty (FunDecl n ps b) =
+    inParens ("define" <+> pretty n <+> mkParamList ps <> pretty b)
+  pretty (FunListDecl n p b) =
+    inParens ("define" <+> pretty n <+> pretty p <> pretty b)
+  pretty (FunDotDecl n ps p b) =
+    inParens ("define" <+> pretty n <+> mkParamListDot ps p <> pretty b)
 
 
 

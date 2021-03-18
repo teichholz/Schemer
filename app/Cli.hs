@@ -3,7 +3,7 @@
 module Cli where
 import RIO
 import Options.Applicative
-import Types
+import Types.Types
 
 getCLIInput :: IO Options
 getCLIInput = execParser progInfo

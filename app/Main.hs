@@ -1,11 +1,14 @@
 module Main where
 
 
-import Types (CompilerState, SourceFile, ScEnv, Options, _fileName, SourceFile(..))
+import Types.Types (CompilerState, SourceFile, ScEnv, Options, _fileName, SourceFile(..))
 import Cli (getCLIInput)
 import RIO
 import RIO.Directory
-import SParser
+import Types.Pprint
+import Sexp.Parser as SexpParser
+import Parser.ScSyn as ScSynParser
+import Phases.Toplevel as Top
 import qualified RIO.Text as T
 import Prelude (print)
 import qualified RIO as R
@@ -27,9 +30,13 @@ main = do
   opts <- getCLIInput
   file <- loadFileIFExists $ _fileName opts
   let srcfile@SourceFile{..} = fromMaybe (SourceFile { _fname = "stdin", _fsrc = "stdin" }) file
-      result = runParser _fname _fsrc
+  case SexpParser.runParser _fname _fsrc of
+    Left err ->
+      print err
+    Right sxp -> do
+      syn <- ScSynParser.runParser sxp
+      print $ pretty syn
 
-  print result
 
 
 -- Main driver to execute the compiler

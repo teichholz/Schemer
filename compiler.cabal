@@ -26,22 +26,19 @@ source-repository head
 library
   exposed-modules:
       Lib
-      Constructors
-      Exceptions
-      Pprint
-      Types
-      NameResolver
-      Literals
-      SParser
-      Parser
+      Parser.ScSyn
+      Phases.Toplevel
+      Sexp.Literals
+      Sexp.Parser
+      Types.Constructors
+      Types.Exceptions
+      Types.Pprint
+      Types.Types
+      Utils.NameResolver
   other-modules:
       Paths_compiler
   hs-source-dirs:
       src
-      src/types
-      src/utils
-      src/sexp
-      src/parser
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
   build-depends:
       base >=4.7 && <5

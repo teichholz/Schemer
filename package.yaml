@@ -41,10 +41,11 @@ ghc-options:
 library:
   source-dirs:
     - src
-    - src/types
-    - src/utils
-    - src/sexp
-    - src/parser
+    # - src/Types
+    # - src/Utils
+    # - src/Sexp
+    # - src/Parser
+    # - src/Phases
 
 executables:
   compiler-exe:

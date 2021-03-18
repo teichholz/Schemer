@@ -2,10 +2,10 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 -- |
 
-module NameResolver (getCname, isPrim) where
+module Utils.NameResolver (getCname, isPrim) where
 
 import RIO
-import Types (Name)
+import Types.Types (Name)
 import RIO.Text
 import qualified Unbound.Generics.LocallyNameless as Un
 import Data.List as L
