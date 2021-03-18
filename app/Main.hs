@@ -1,20 +1,28 @@
 module Main where
 
 
-import Types.Types (CompilerState, SourceFile, ScEnv, Options, _fileName, SourceFile(..))
+
+
+import Types.Types (Env(..), dummy, SourceFile, ScEnv, Options(..), _fileName, SourceFile(..), ScSyn)
 import Cli (getCLIInput)
 import RIO
+import Data.Foldable (foldl1)
 import RIO.Directory
-import Types.Pprint
+import Types.Pprint (pretty)
+
 import Sexp.Parser as SexpParser
 import Parser.ScSyn as ScSynParser
-import Phases.Toplevel as Top
-import qualified RIO.Text as T
-import Prelude (print)
-import qualified RIO as R
 
-phases :: [ScEnv a]
-phases = []
+import qualified Phases.Toplevel as Top
+
+import Prelude (print)
+
+
+phases :: [ScEnv ()]
+phases = [Top.transform]
+
+compileAction ::  ScEnv ()
+compileAction = foldl1 (>>) phases
 
 loadFileIFExists :: MonadIO m => FilePath -> m (Maybe SourceFile)
 loadFileIFExists fpath = do
@@ -33,24 +41,30 @@ main = do
   case SexpParser.runParser _fname _fsrc of
     Left err ->
       print err
-    Right sxp -> do
-      syn <- ScSynParser.runParser sxp
-      print $ pretty syn
+    Right sxps -> do
+      syns <- mapM ScSynParser.runParser sxps
+      runApp srcfile syns opts compileAction
+      -- forM_ syns (print . pretty)
 
+runApp :: SourceFile -- ^ Source
+  -> [ScSyn] -- ^ Toplevel Scheme syntax made of declarations and expressions
+  -> Options -- ^ CLI options
+  -> ScEnv a -- ^ Action to execute
+  -> IO a
+runApp sf top opts action = do
+  logOptions' <- logOptionsHandle stderr (_optionsVerbose opts)
+  let logOptions = setLogUseTime True $ setLogUseLoc True logOptions'
+  withLogFunc logOptions $ \logFunc -> do
+    let state =
+          Env {
+            _file = sf
+            , _ast = dummy
+            , _toplevel = top
+            , _options = opts
+            , _name = "Schemer"
+            , _logF = logFunc }
+    runRIO state action
 
-
--- Main driver to execute the compiler
--- runApp :: MonadUnliftIO m => Options -> RIO App b -> m b
--- runApp opts inner = do
---   logOptions' <- logOptionsHandle stderr (optionsVerbose opts)
---   let logOptions = setLogUseTime True $ setLogUseLoc True logOptions'
---   withLogFunc logOptions $ \logFunc -> do
---     let app =
---           App
---             { appLogFunc = logFunc,
---               appName = "Alice"
---             }
---     runRIO app inner
 
 -- sayHello :: RIO App ()
 -- sayHello = do

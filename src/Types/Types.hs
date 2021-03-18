@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DeriveDataTypeable, DeriveGeneric, MultiParamTypeClasses #-}
@@ -9,12 +10,12 @@ import RIO hiding (void)
 import qualified Unbound.Generics.LocallyNameless as Un
 
 -- Main datatype as a: ReaderT CompilerState IO a
-type ScEnv a = RIO CompilerState a
+type ScEnv a = RIO Env a
 
-data CompilerState = CompilerState
-  { _file :: Maybe SourceFile
+data Env = Env
+  { _file :: SourceFile
   , _ast      :: ScSyn  -- Scheme syntax
-  , _topLevel :: [ScSyn] -- Top level Scheme syntax
+  , _toplevel :: [ScSyn] -- Top level Scheme syntax
   , _options :: Options -- CLI options / arguments
   , _name :: String -- Name of this awesome compiler
   , _logF :: LogFunc -- Logger (RIO)
@@ -30,8 +31,99 @@ data Options = Options
   , _fileName :: !FilePath
   } deriving (Show)
 
-instance HasLogFunc CompilerState where
+instance HasLogFunc Env where
   logFuncL = lens _logF (\x y -> x {_logF = y})
+
+-------------------------------------------------------------------------------
+-- Has Type Classes
+-------------------------------------------------------------------------------
+
+class HasAst env where
+  astL :: Lens' env ScSyn
+
+class HasToplevel env where
+  toplevelL :: Lens' env [ScSyn]
+
+instance HasAst Env where
+  astL = lens _ast (\x y -> x { _ast = y })
+
+instance HasToplevel Env where
+  toplevelL = lens _toplevel (\x y -> x { _toplevel = y })
+
+-------------------------------------------------------------------------------
+-- Helper classes
+-------------------------------------------------------------------------------
+
+class ToSyn t where
+  toSyn :: t -> ScSyn
+
+class ToExpr t where
+  toExpr :: t -> Expr
+
+class ToDecl t where
+  toDecl :: t -> Decl
+
+class ToBody t where
+  toBody :: t -> Body
+
+-- ToSyn
+
+instance ToSyn Decl where
+  toSyn = ScDecl
+
+instance ToSyn Expr where
+  toSyn = ScExpr
+
+instance ToSyn Application where
+  toSyn = toSyn . toExpr
+
+instance ToSyn Name where
+  toSyn = toSyn . toExpr
+
+instance ToSyn Lambda where
+  toSyn = toSyn . toExpr
+
+instance ToSyn Let where
+  toSyn = toSyn . toExpr
+
+instance ToSyn Literal where
+  toSyn = toSyn . toExpr
+
+-- ToExpr
+instance ToExpr ScSyn where
+  toExpr (ScExpr e) = e
+
+instance ToExpr Application where
+  toExpr = EApp
+
+instance ToExpr Lambda where
+  toExpr = ELam
+
+instance ToExpr Let where
+  toExpr = ELet
+
+instance ToExpr Literal where
+  toExpr = ELit
+
+instance ToExpr Name where
+  toExpr = EVar
+
+-- ToDecl
+instance ToDecl ScSyn where
+  toDecl (ScDecl d) = d
+
+-- ToBody
+instance ToBody Expr where
+  toBody e = Body $ toSyn <$> [e]
+
+instance ToBody [Expr] where
+  toBody e = Body $ toSyn <$> e
+
+instance ToBody ScSyn where
+  toBody e = Body [e]
+
+instance ToBody [ScSyn] where
+  toBody = Body
 
 -------------------------------------------------------------------------------
 -- AST
@@ -39,7 +131,10 @@ instance HasLogFunc CompilerState where
 
 -- Pre-Desugar
 
--- Functions will be converted to lambdas, so there are no bindings just parameters
+-- dummy AST
+dummy :: ScSyn
+dummy = ScExpr $ ELit LitUnspecified
+
 data ScSyn
   = ScDecl Decl
   | ScExpr Expr
@@ -48,9 +143,9 @@ data ScSyn
 instance Un.Alpha ScSyn
 
 data Decl
-  = FunDecl Name Params BodyKind
-  | FunDotDecl Name Params Param BodyKind
-  | FunListDecl Name Param BodyKind
+  = FunDecl Name Params Body
+  | FunDotDecl Name Params Param Body
+  | FunListDecl Name Param Body
   | VarDecl Name Expr
   deriving (Show, Generic, Typeable)
 
@@ -91,40 +186,37 @@ data SynExtension
   | EOr (Maybe [Expr])  -- (or)
   | EAnd (Maybe [Expr]) -- (and)
   | EBegin [Expr]       -- (begin (io) 'true)
-  | LetStar [(Name, Expr)] BodyKind
-  | LetRec [(Name, Expr)] BodyKind
+  | LetStar [(Name, Expr)] Body
+  | LetRec [(Name, Expr)] Body
   deriving (Show, Generic, Typeable)
 
 
 instance Un.Alpha SynExtension
 
 type CondBody
-  = [(Expr, BodyKind)] -- (test expr1 expr2 ...)
+  = [(Expr, Body)] -- (test expr1 expr2 ...)
 
 type CaseBody
-  = [([Literal], BodyKind)] -- (test expr1 expr2 ...)
+  = [([Literal], Body)] -- (test expr1 expr2 ...)
 
 data Lambda
-  = Lam (Un.Bind [Name] BodyKind)
-  | LamDot (Un.Bind ([Name], Name) BodyKind)
-  | LamList (Un.Bind Name BodyKind)
+  = Lam (Un.Bind [Name] Body)
+  | LamDot (Un.Bind ([Name], Name) Body)
+  | LamList (Un.Bind Name Body)
   deriving (Show, Generic, Typeable)
 
 instance Un.Alpha Lambda
 
 newtype Let
-  = Let (Un.Bind [(Name, Un.Embed Expr)] BodyKind)
+  = Let (Un.Bind [(Name, Un.Embed Expr)] Body)
   deriving (Show, Generic, Typeable)
 
 instance Un.Alpha Let
 
-data BodyKind
-  = BSingle ScSyn
-  | BMultiple [ScSyn]
+newtype Body = Body { unBody :: [ScSyn]}
   deriving (Show, Generic, Typeable)
 
-instance Un.Alpha BodyKind
-
+instance Un.Alpha Body
 
 data Literal
   = LitString String
@@ -187,9 +279,9 @@ descendM f syn = case syn of
 descendDeclM :: (Monad m, Un.Fresh m) => Mapper m -> Decl -> m Decl
 descendDeclM f d = mapDecl f =<< case d of
   VarDecl n e -> VarDecl n <$> descendExprM f e
-  FunDecl n p b -> FunDecl n p <$> descendBodyKindM f b
-  FunDotDecl n ps p b -> FunDotDecl n ps p <$> descendBodyKindM f b
-  FunListDecl n p b -> FunListDecl n p <$> descendBodyKindM f b
+  FunDecl n p b -> FunDecl n p <$> descendBodyM f b
+  FunDotDecl n ps p b -> FunDotDecl n ps p <$> descendBodyM f b
+  FunListDecl n p b -> FunListDecl n p <$> descendBodyM f b
 
 descendExprM :: (Monad m, Un.Fresh m) => Mapper m -> Expr -> m Expr
 descendExprM f e = mapExpr f =<< case e of
@@ -214,18 +306,16 @@ descendLambdaM :: (Monad m, Un.Fresh m) => Mapper m -> Lambda -> m Lambda
 descendLambdaM f e = case e of
   Lam bnd -> do
     (pats, body) <- Un.unbind bnd
-    Lam . Un.bind pats <$> descendBodyKindM f body
+    Lam . Un.bind pats <$> descendBodyM f body
   LamDot bnd -> do
     ((pats, pat), body) <- Un.unbind bnd
-    LamDot . Un.bind (pats, pat) <$> descendBodyKindM f body
+    LamDot . Un.bind (pats, pat) <$> descendBodyM f body
   LamList bnd -> do
     (pat, body) <- Un.unbind bnd
-    LamList . Un.bind pat <$> descendBodyKindM f body
+    LamList . Un.bind pat <$> descendBodyM f body
 
-descendBodyKindM :: (Monad m, Un.Fresh m) => Mapper m -> BodyKind -> m BodyKind
-descendBodyKindM f e = case e of
-  BSingle e -> BSingle <$> descendM f e
-  BMultiple es -> BMultiple <$> sequence (descendM f <$> es)
+descendBodyM :: (Monad m, Un.Fresh m) => Mapper m -> Body -> m Body
+descendBodyM f b = Body <$> sequence (descendM f <$> unBody b)
 
 
 descendLetM :: (Monad m, Un.Fresh m) => Mapper m -> Let -> m Let
@@ -235,7 +325,7 @@ descendLetM f e = case e of
     let newpatlist =
          (fmap . fmap) Un.Embed <$>
          (mapM . mapM) (descendExprM f) (fmap (\ (n, Un.Embed e) -> (n, e)) patlist)
-    let newbodyKind = descendBodyKindM f bodyKind
+    let newbodyKind = descendBodyM f bodyKind
     Let <$> liftA2 Un.bind newpatlist newbodyKind
 
 
@@ -248,23 +338,35 @@ descendSynExtensionM f e = case e of
     do
       let ml = sequence $ do
             (e, bodyKind) <- condBody
-            return $ (,) <$> descendExprM f e <*> descendBodyKindM f bodyKind
+            return $ (,) <$> descendExprM f e <*> descendBodyM f bodyKind
       ECond <$> ml
   ECase cse caseBody ->
     do
       let ml = sequence $ do
             (e, bodyKind) <- caseBody
-            return $ (e,) <$> descendBodyKindM f bodyKind
+            return $ (e,) <$> descendBodyM f bodyKind
       ECase <$> descendExprM f cse <*> ml
   LetStar bindings body -> do
     let newpatlist = (mapM . mapM) (descendExprM f) bindings
-    let newbodyKind = descendBodyKindM f body
+    let newbodyKind = descendBodyM f body
     LetStar <$> newpatlist <*> newbodyKind
 
   LetRec bindings body -> do
     let newpatlist = (mapM . mapM) (descendExprM f) bindings
-    let newbodyKind = descendBodyKindM f body
+    let newbodyKind = descendBodyM f body
     LetRec <$> newpatlist <*> newbodyKind
+
+
+-------------------------------------------------------------------------------
+-- Utils
+-------------------------------------------------------------------------------
+isDecl :: ScSyn -> Bool
+isDecl (ScDecl _) = True
+isDecl _ = False
+
+isExpr :: ScSyn -> Bool
+isExpr (ScExpr _) = True
+isExpr _ = False
 
 -- compose
 --   :: (Expr -> Expr)

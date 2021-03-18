@@ -66,7 +66,7 @@ parseExpr = \case
     list -> makeAnd . Just <$> parseExprs list)
 
   List(Atom "set!":tl) -> (case tl of
-    [Atom id, e] ->  makeSet id <$> parseExpr e
+    [Atom id, e] ->  makeSet (makeName id) <$> parseExpr e
     _ -> throwM $ ParseException "wrong set!")
 
   List(Atom "apply":tl) -> (case tl of

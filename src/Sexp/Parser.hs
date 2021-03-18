@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, FlexibleContexts, OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances, FlexibleContexts, OverloadedStrings, QuasiQuotes #-}
 -- | Parses S-expressions into its own datatype
 
 module Sexp.Parser (Sexp(..), Sexp.Parser.runParser, Parser) where
@@ -9,7 +9,7 @@ import Text.Megaparsec.Char
 
 import qualified Text.Megaparsec.Char.Lexer as L
 import Control.Applicative as A
-
+import Text.RawString.QQ
 
 -------------------------------------------------------------------------------
 -- Types
@@ -30,20 +30,25 @@ sc = L.space
   (choice [L.skipLineComment ";", L.skipLineComment ";;"])
   A.empty
 
+symbol :: Text -> Parser Text
 symbol = L.symbol sc
+lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
 
-isAtom :: Char -> Bool
-isAtom = (`notElem` ['\n', '\t', '(', ')', ' '])
-
-rawAtom :: Parser Text
-rawAtom = takeWhile1P (Just "S-expression atom character") isAtom
+whites :: Parser ()
+whites = sc
 
 atom :: Parser Sexp
 atom = Atom <$> lexeme rawAtom
 
-list :: Parser Sexp
-list = (List <$> parens (M.some list)) <|> atom
+rawAtom :: Parser Text
+rawAtom = takeWhile1P (Just "S-expression atom character") isAtom
+
+isAtom :: Char -> Bool
+isAtom = (`notElem` ['\n', '\t', '(', ')', ' '])
+
+sexp :: Parser Sexp
+sexp = sc *> ((List <$> parens (M.some sexp)) <|> atom) <* sc
 
 parens :: Parser a -> Parser a
 parens = between lpar rpar
@@ -53,8 +58,17 @@ lpar = symbol "("
 rpar :: Parser Text
 rpar = symbol ")"
 
-sexpParser :: Parser Sexp
-sexpParser = list
+sexps :: Parser [Sexp]
+sexps = sepBy sexp sc <* eof
 
-runParser :: FilePath -> Text -> Either (ParseErrorBundle Text Void) Sexp
-runParser = M.parse sexpParser
+runParser :: FilePath -> Text -> Either (ParseErrorBundle Text Void) [Sexp]
+runParser = M.parse sexps
+
+txt :: Text
+txt = [r|
+(define   x   (+ 2   4  )   )
+(+ x 2)
+
+|]
+
+test = parseTest sexps txt

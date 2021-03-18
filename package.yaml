@@ -28,6 +28,7 @@ dependencies:
 - text
 - mtl
 - regex-tdfa
+- raw-strings-qq
 
 ghc-options:
 - -Wall

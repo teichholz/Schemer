@@ -45,6 +45,7 @@ library
     , megaparsec
     , mtl
     , prettyprinter
+    , raw-strings-qq
     , regex-tdfa
     , rio >=0.1.12.0
     , text
@@ -68,6 +69,7 @@ executable compiler-exe
     , mtl
     , optparse-applicative
     , prettyprinter
+    , raw-strings-qq
     , regex-tdfa
     , rio >=0.1.12.0
     , text
@@ -89,6 +91,7 @@ test-suite compiler-test
     , megaparsec
     , mtl
     , prettyprinter
+    , raw-strings-qq
     , regex-tdfa
     , rio >=0.1.12.0
     , text

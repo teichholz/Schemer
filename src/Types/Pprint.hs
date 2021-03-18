@@ -3,7 +3,7 @@
 
 -- | Pretty Printer
 
-module Types.Pprint (pretty) where
+module Types.Pprint (pretty, display) where
 
 import RIO
 import Types.Types
@@ -43,7 +43,7 @@ mkVertList = inParens . vertDocs
 doIndent :: Doc ann -> Doc ann
 doIndent d = nest ind (line <> d)
 
-mkLet :: [(Name, Expr)] -> BodyKind -> Doc ann
+mkLet :: [(Name, Expr)] -> Body -> Doc ann
 mkLet bindings body =
   inParens $ "let" <+> mkBinding bindings <> pretty body
   where
@@ -81,9 +81,8 @@ instance Pretty Literal where
   pretty (LitVector vec) = "#" <> pretty (LitList vec)
   pretty LitUnspecified  = "unspecified"
 
-instance Pretty BodyKind where
-  pretty (BSingle expr) =  doIndent $ pretty expr
-  pretty (BMultiple exprs) =  doIndent $ align (vsep $ pretty <$> exprs)
+instance Pretty Body where
+  pretty b =  doIndent $ align (vsep $ pretty <$> unBody b)
 
 instance Pretty Name where
   pretty name = pretty $ T.pack $  Un.name2String name
@@ -133,16 +132,18 @@ instance Pretty Decl where
   pretty (VarDecl n e) =
     inParens ("define" <+> vertDocs [pretty n, pretty e])
   pretty (FunDecl n ps b) =
-    inParens ("define" <+> pretty n <+> mkParamList ps <> pretty b)
+    inParens ("define" <+> mkParamList (n:ps) <> pretty b)
   pretty (FunListDecl n p b) =
     inParens ("define" <+> pretty n <+> pretty p <> pretty b)
   pretty (FunDotDecl n ps p b) =
-    inParens ("define" <+> pretty n <+> mkParamListDot ps p <> pretty b)
+    inParens ("define" <+> mkParamListDot (n:ps) p <> pretty b)
 
 
+-- Type class from RIO to display human readable text
 
--- testAst :: Expr
--- testAst =
---   makeLet
---     [(Un.s2n "x", ELit (LitInt 42)), (Un.s2n "y", ELit (LitInt 42))]
---     (makePrimApp "+" [EVar (Un.s2n "x"), ELit (LitInt 42)])
+instance Display (Doc a) where
+  textDisplay = pack . show
+
+instance Display ScSyn where
+  textDisplay = textDisplay . pretty
+
