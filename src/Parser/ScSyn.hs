@@ -1,4 +1,4 @@
-{-# LANGUAGE MultiWayIf #-}
+
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase, OverloadedStrings #-}
 -- | Parsing Sexp into Expr
@@ -32,12 +32,12 @@ parseL = mapM runParser
 parseDecl :: [Sexp] -> IO Decl
 parseDecl = \case
   [Atom name,expr] -> makeVarDecl name <$> parseExpr expr
-  List[Atom name, Atom ".", Atom arg]:body -> makeFunListDecl (makeName name) (makeName arg) <$> (makeMultBody <$> parseL body)
+  List[Atom name, Atom ".", Atom arg]:body -> makeFunListDecl name arg <$> parseL body
   List(Atom name:argl):body -> do
     args <- parseArgs argl
     case args of
-      Normal args ->  makeFunDecl (makeName name) args <$> (makeMultBody <$> parseL body)
-      Dotted args arg -> makeFunDotDecl (makeName name) args arg <$> (makeMultBody <$> parseL body)
+      Normal args ->  makeFunDecl name args <$> parseL body
+      Dotted args arg -> makeFunDotDecl (toName name) args arg <$> parseL body
   _ -> throwM $ ParseException "Wrong define"
 
 parseExprs :: [Sexp] -> IO [Expr]
@@ -46,7 +46,7 @@ parseExprs = mapM parseExpr
 parseExpr :: Sexp -> IO Expr
 parseExpr = \case
   List(Atom "let":tl) -> (case tl of
-    List bindings:body -> liftA2 makeLetN (parseBindings bindings) (parseL body)
+    List bindings:body -> liftA2 makeLet (parseBindings bindings) (parseL body)
     _ -> throwM $ ParseException "Wrong let")
 
   List(Atom "if":tl) -> (case tl of
@@ -66,7 +66,7 @@ parseExpr = \case
     list -> makeAnd . Just <$> parseExprs list)
 
   List(Atom "set!":tl) -> (case tl of
-    [Atom id, e] ->  makeSet (makeName id) <$> parseExpr e
+    [Atom id, e] ->  makeSet id <$> parseExpr e
     _ -> throwM $ ParseException "wrong set!")
 
   List(Atom "apply":tl) -> (case tl of
@@ -81,7 +81,7 @@ parseExpr = \case
     _ -> throwM $ ParseException "Wrong call\\cc"
 
   List(hd:tl) -> case hd of
-    Atom hd | isPrim hd -> makePrimApp (unpack hd) <$> (parseExprs tl)
+    Atom hd | isPrim hd -> makePrimApp (unpack hd) <$> parseExprs tl
     Atom hd | isIdent hd -> liftA2 makeLamApp (parseIdent hd) (parseExprs tl)
     List _ -> liftA2 makeLamApp (parseExpr hd) (parseExprs tl)
     _ -> throwM $ ParseException "Wrong application"
@@ -124,9 +124,9 @@ parseLambda = \case
   List argl:body -> do
     args <- parseArgs argl
     case args of
-      Normal args ->  makeLamMultBods args <$> parseL body
-      Dotted args arg -> makeLamDotMultBods args arg <$> parseL body
-  Atom arg:body -> makeLamListMultBods (makeName arg) <$> parseL body
+      Normal args ->  makeLam args <$> parseL body
+      Dotted args arg -> makeLamDot args arg <$> parseL body
+  Atom arg:body -> makeLamList arg <$> parseL body
 
 
 parseArgs :: [Sexp] -> IO Args
@@ -137,12 +137,11 @@ parseArgs args = evalStateT (go args) []
       Atom ".":tl -> do
         case tl of
           [Atom id] -> do
-            modify (makeName id:)
             lst <- get
-            return $ Dotted (reverse $ tail lst) (head lst)
+            return $ Dotted (reverse lst) (toName id)
           _ -> throwM $ ParseException "Wrong arg list for dotted lambda"
       Atom id:tl -> do
-        modify (makeName id:)
+        modify (toName id:)
         go tl
       [] -> Normal . reverse <$> get
       _ -> throwM $ ParseException "Wrong args"

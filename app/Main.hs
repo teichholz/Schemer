@@ -6,6 +6,7 @@ module Main where
 import Types.Types (Env(..), dummy, SourceFile, ScEnv, Options(..), _fileName, SourceFile(..), ScSyn)
 import Cli (getCLIInput)
 import RIO
+import Data.List (foldr1)
 import Data.Foldable (foldl1)
 import RIO.Directory
 import Types.Pprint (pretty)
@@ -21,7 +22,7 @@ import Prelude (print)
 phases :: [ScEnv ()]
 phases = [Top.transform]
 
-compileAction ::  ScEnv ()
+compileAction :: ScEnv ()
 compileAction = foldl1 (>>) phases
 
 loadFileIFExists :: MonadIO m => FilePath -> m (Maybe SourceFile)
@@ -49,16 +50,17 @@ main = do
 runApp :: SourceFile -- ^ Source
   -> [ScSyn] -- ^ Toplevel Scheme syntax made of declarations and expressions
   -> Options -- ^ CLI options
-  -> ScEnv a -- ^ Action to execute
-  -> IO a
+  -> ScEnv () -- ^ Action to execute
+  -> IO ()
 runApp sf top opts action = do
   logOptions' <- logOptionsHandle stderr (_optionsVerbose opts)
   let logOptions = setLogUseTime True $ setLogUseLoc True logOptions'
   withLogFunc logOptions $ \logFunc -> do
+    astRef <- newSomeRef dummy
     let state =
           Env {
             _file = sf
-            , _ast = dummy
+            , _ast = astRef
             , _toplevel = top
             , _options = opts
             , _name = "Schemer"

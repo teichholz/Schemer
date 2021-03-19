@@ -8,13 +8,14 @@ module Types.Types where
 
 import RIO hiding (void)
 import qualified Unbound.Generics.LocallyNameless as Un
+import qualified RIO.Text
 
 -- Main datatype as a: ReaderT CompilerState IO a
 type ScEnv a = RIO Env a
 
 data Env = Env
   { _file :: SourceFile
-  , _ast      :: ScSyn  -- Scheme syntax
+  , _ast      :: SomeRef ScSyn  -- Scheme syntax
   , _toplevel :: [ScSyn] -- Top level Scheme syntax
   , _options :: Options -- CLI options / arguments
   , _name :: String -- Name of this awesome compiler
@@ -34,21 +35,6 @@ data Options = Options
 instance HasLogFunc Env where
   logFuncL = lens _logF (\x y -> x {_logF = y})
 
--------------------------------------------------------------------------------
--- Has Type Classes
--------------------------------------------------------------------------------
-
-class HasAst env where
-  astL :: Lens' env ScSyn
-
-class HasToplevel env where
-  toplevelL :: Lens' env [ScSyn]
-
-instance HasAst Env where
-  astL = lens _ast (\x y -> x { _ast = y })
-
-instance HasToplevel Env where
-  toplevelL = lens _toplevel (\x y -> x { _toplevel = y })
 
 -------------------------------------------------------------------------------
 -- Helper classes
@@ -65,6 +51,9 @@ class ToDecl t where
 
 class ToBody t where
   toBody :: t -> Body
+
+class ToName t where
+  toName :: t -> Name
 
 -- ToSyn
 
@@ -113,11 +102,20 @@ instance ToDecl ScSyn where
   toDecl (ScDecl d) = d
 
 -- ToBody
+instance ToBody Body where
+  toBody = id
+
 instance ToBody Expr where
   toBody e = Body $ toSyn <$> [e]
 
 instance ToBody [Expr] where
   toBody e = Body $ toSyn <$> e
+
+instance ToBody Literal where
+  toBody = toBody . toExpr
+
+instance ToBody [Literal] where
+  toBody = toBody . fmap toExpr
 
 instance ToBody ScSyn where
   toBody e = Body [e]
@@ -125,6 +123,15 @@ instance ToBody ScSyn where
 instance ToBody [ScSyn] where
   toBody = Body
 
+-- ToName
+instance ToName String where
+  toName = Un.s2n
+
+instance ToName Text where
+  toName = toName . RIO.Text.unpack
+
+instance ToName Name where
+  toName = id
 -------------------------------------------------------------------------------
 -- AST
 -------------------------------------------------------------------------------
@@ -247,17 +254,17 @@ data (a :*: b) = D a b
 type Mapper m = (Expr -> m Expr) :*: (Decl -> m Decl)
 
 -- Alias for MakeMapExpr
-makeMap :: Monad m => (Expr -> m Expr) -> Mapper m
+makeMap ::(Monad m, Un.Fresh m)  => (Expr -> m Expr) -> Mapper m
 makeMap = makeMapExpr
 
-makeMapExpr :: Monad m => (Expr -> m Expr) -> Mapper m
+makeMapExpr :: (Monad m, Un.Fresh m)  => (Expr -> m Expr) -> Mapper m
 makeMapExpr f = D f return
 
 makeMapDecl :: Monad m => (Decl -> m Decl) -> Mapper m
 makeMapDecl = D return
 
-makeMapper :: (Expr -> m Expr) -> (Decl -> m Decl) -> Mapper m
-makeMapper = D
+makeMap' :: (Expr -> m Expr) -> (Decl -> m Decl) -> Mapper m
+makeMap' = D
 
 mapDecl :: Mapper m -> Decl -> m Decl
 mapDecl (D _ f) = f
@@ -265,11 +272,8 @@ mapDecl (D _ f) = f
 mapExpr :: Mapper m -> Expr -> m Expr
 mapExpr (D f _) = f
 
--- descend :: (Expr -> Expr) -> Expr -> Expr
--- descend f exp = Un.runFreshM (descendExprM (return . f) exp)
-
-
-
+descend :: (Expr -> Expr) -> ScSyn -> ScSyn
+descend f exp = Un.runFreshM (descendM (makeMap (return . f)) exp)
 
 descendM :: (Monad m, Un.Fresh m) => Mapper m -> ScSyn -> m ScSyn
 descendM f syn = case syn of
@@ -367,6 +371,12 @@ isDecl _ = False
 isExpr :: ScSyn -> Bool
 isExpr (ScExpr _) = True
 isExpr _ = False
+
+mapBind f g b = Un.runFreshM $ do
+        (binding, body) <- Un.unbind b
+        let body' = g body
+            binding' = f binding
+        return $ Un.bind binding' body'
 
 -- compose
 --   :: (Expr -> Expr)

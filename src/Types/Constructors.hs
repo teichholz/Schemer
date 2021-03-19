@@ -24,21 +24,28 @@ makeVar = EVar . makeName . pack
 makeName :: Text -> Name
 makeName = Un.s2n . unpack
 
-makeLam :: ToBody b => [Name] -> b -> Expr
-makeLam names b = toExpr $ Lam $ Un.bind names $ toBody b
+makeLam :: (ToBody b, ToName n) => [n] -> b -> Expr
+makeLam names b = toExpr $ Lam $ Un.bind (toName <$> names) $ toBody b
 
-makeLamDot :: ToBody b => [Name] -> Name -> b -> Expr
-makeLamDot names name b = toExpr $ LamDot $ Un.bind (names, name) $ toBody b
+makeLamDot :: (ToBody b, ToName n, ToName n2) => [n] -> n2 -> b -> Expr
+makeLamDot names name b = toExpr $ LamDot $ Un.bind (toName <$> names, toName name) $ toBody b
 
-makeLamList :: ToBody b => Name -> b -> Expr
-makeLamList name b = toExpr $ LamList $ Un.bind name $ toBody b
+makeLamList :: (ToBody b, ToName n) => n -> b -> Expr
+makeLamList name b = toExpr $ LamList $ Un.bind (toName name) $ toBody b
 
-makeLetT :: [(Name, Expr)] -> Body -> Expr
-makeLetT bindings body =
-  ELet $ Let $ Un.bind ((fmap . fmap) Un.Embed bindings) body
+makeFunDecl :: (ToBody b, ToName n, ToName n2) => n -> [n2] -> b -> Decl
+makeFunDecl n ps b = FunDecl (toName n) (toName <$> ps) $ toBody b
 
-makeLet :: ToBody b =>  [(Name, Expr)] -> b -> Expr
-makeLet bindings b = makeLetT bindings $ toBody b
+makeFunDotDecl :: (ToBody b, ToName n, ToName n2, ToName n3) => n -> [n2] -> n3 -> b -> Decl
+makeFunDotDecl n ps p b = FunDotDecl (toName n) (toName <$> ps) (toName p) $ toBody b
+
+makeFunListDecl :: (ToBody b, ToName n, ToName n2) => n -> n2 -> b -> Decl
+makeFunListDecl n p b = FunListDecl (toName n) (toName p) $ toBody b
+
+makeLet :: (ToBody b, ToName n) => [(n, Expr)] -> b -> Expr
+makeLet bindings body =
+  let bindings' = fmap (bimap toName Un.Embed) bindings in
+    ELet $ Let $ Un.bind bindings' (toBody body)
 
 makeIf3 :: Expr -> Expr -> Expr -> Expr
 makeIf3 = EIf
@@ -46,8 +53,8 @@ makeIf3 = EIf
 makeIf2 :: Expr -> Expr -> Expr
 makeIf2 tst thn = EIf tst thn (toExpr makeUnspecified)
 
-makeSet :: Name -> Expr -> Expr
-makeSet = ESet
+makeSet :: (ToName n) => n -> Expr -> Expr
+makeSet n = ESet (toName n)
 
 makeApply :: Expr -> Expr -> Expr
 makeApply = EApply
@@ -94,17 +101,9 @@ makeExp = ScExpr
 makeDecl :: Decl -> ScSyn
 makeDecl = ScDecl
 
-makeVarDecl :: Text -> Expr -> Decl
-makeVarDecl t = VarDecl (makeName t)
+makeVarDecl :: (ToName n) => n -> Expr -> Decl
+makeVarDecl t = VarDecl (toName t)
 
-makeFunDecl :: Name -> [Name] -> Body -> Decl
-makeFunDecl = FunDecl
-
-makeFunDotDecl :: Name -> [Name] -> Name -> Body -> Decl
-makeFunDotDecl = FunDotDecl
-
-makeFunListDecl :: Name -> Name -> Body -> Decl
-makeFunListDecl = FunListDecl
 
 makeOr :: Maybe [Expr] -> Expr
 makeOr = ESynExt . EOr
