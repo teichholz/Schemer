@@ -42,9 +42,9 @@ makeFunDotDecl n ps p b = FunDotDecl (toName n) (toName <$> ps) (toName p) $ toB
 makeFunListDecl :: (ToBody b, ToName n, ToName n2) => n -> n2 -> b -> Decl
 makeFunListDecl n p b = FunListDecl (toName n) (toName p) $ toBody b
 
-makeLet :: (ToBody b, ToName n) => [(n, Expr)] -> b -> Expr
+makeLet :: (ToBinding b, ToBody b2) => b -> b2 -> Expr
 makeLet bindings body =
-  let bindings' = fmap (bimap toName Un.Embed) bindings in
+  let bindings' = toBinding bindings in
     ELet $ Let $ Un.bind bindings' (toBody body)
 
 makeIf3 :: Expr -> Expr -> Expr -> Expr
@@ -104,7 +104,6 @@ makeDecl = ScDecl
 makeVarDecl :: (ToName n) => n -> Expr -> Decl
 makeVarDecl t = VarDecl (toName t)
 
-
 makeOr :: Maybe [Expr] -> Expr
 makeOr = ESynExt . EOr
 
@@ -113,3 +112,13 @@ makeAnd = ESynExt . EAnd
 
 makeBegin :: [Expr] -> Expr
 makeBegin = ESynExt . EBegin
+
+car :: Expr -> Expr
+car e = makePrimApp "car" [e]
+
+cdr :: Expr -> Expr
+cdr e = makePrimApp "cdr" [e]
+
+if' :: Bool -> a -> a -> a
+if' True  x _ = x
+if' False _ y = y

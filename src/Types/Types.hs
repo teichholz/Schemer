@@ -4,7 +4,7 @@
 {-# LANGUAGE DeriveDataTypeable, DeriveGeneric, MultiParamTypeClasses #-}
 -- | Compiler types
 
-module Types.Types where
+module Types.Types  where
 
 import RIO hiding (void)
 import qualified Unbound.Generics.LocallyNameless as Un
@@ -51,6 +51,15 @@ class ToDecl t where
 
 class ToBody t where
   toBody :: t -> Body
+
+class ToEmbed t where
+  toEmbed :: t -> Un.Embed Expr
+
+class ToBinding t where
+  toBinding :: t -> Binding
+
+class ToBind t where
+  toBind :: t -> Un.Bind Binding Body
 
 class ToName t where
   toName :: t -> Name
@@ -123,6 +132,22 @@ instance ToBody ScSyn where
 instance ToBody [ScSyn] where
   toBody = Body
 
+-- ToEmbed
+instance ToEmbed Expr where
+  toEmbed = Un.embed
+
+instance ToEmbed (Un.Embed Expr) where
+  toEmbed = id
+
+-- ToBinding
+instance (ToName n, ToEmbed e) => ToBinding (n, e) where
+  toBinding (n, e) = [(toName n, toEmbed e)]
+
+instance (ToName n, ToEmbed e) => ToBinding [(n, e)] where
+  toBinding = fmap (bimap toName toEmbed)
+
+-- instance ToBind ()
+
 -- ToName
 instance ToName String where
   toName = Un.s2n
@@ -132,6 +157,10 @@ instance ToName Text where
 
 instance ToName Name where
   toName = id
+
+-- Funktor
+instance Functor Un.Embed where
+  fmap f (Un.Embed t) = Un.Embed $ f t
 -------------------------------------------------------------------------------
 -- AST
 -------------------------------------------------------------------------------
@@ -217,6 +246,8 @@ instance Un.Alpha Lambda
 newtype Let
   = Let (Un.Bind [(Name, Un.Embed Expr)] Body)
   deriving (Show, Generic, Typeable)
+
+type Binding = [(Name, Un.Embed Expr)]
 
 instance Un.Alpha Let
 
@@ -378,8 +409,15 @@ mapBind f g b = Un.runFreshM $ do
             binding' = f binding
         return $ Un.bind binding' body'
 
--- compose
---   :: (Expr -> Expr)
---   -> (Expr -> Expr)
---   -> (Expr -> Expr)
--- compose f g = descend (f . g)
+compose
+  :: (Expr -> Expr)
+  -> (Expr -> Expr)
+  -> (Expr -> Expr)
+compose f g = f . g
+
+composeM
+  :: (Un.Fresh m)
+  => (Expr -> m Expr)
+  -> (Expr -> m Expr)
+  -> (Expr -> m Expr)
+composeM f g = f <=< g
