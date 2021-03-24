@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
--- | Toplevel transformation into a single Expr, removing all declarations.
+-- | 1. Phase: Toplevel transformation into a single Expr, removing all declarations.
 
 -- This phase removes alle declarations (define) inside of bodies (let, lambda, define, Toplevel)
 -- and transforms them into letrec with the expressions of the body as expressions in the letrec.
@@ -27,9 +27,7 @@ transform = do
       topLet = toSyn $ body2Rec top'
       top'' =  go topLet
 
-  logDebug $ "\n" <> display top''
-  logDebug $ "\n" <> display (pack $ show top'')
-
+  logDebug $ "Created AST from toplevel:\n" <> display top''
 
   ast <- asks _ast
   writeSomeRef ast top''

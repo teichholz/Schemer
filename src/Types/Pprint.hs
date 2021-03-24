@@ -146,4 +146,3 @@ instance Display (Doc a) where
 
 instance Display ScSyn where
   textDisplay = textDisplay . pretty
-

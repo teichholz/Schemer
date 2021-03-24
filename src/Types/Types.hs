@@ -7,6 +7,7 @@
 module Types.Types  where
 
 import RIO hiding (void)
+import RIO.Lens as L
 import qualified Unbound.Generics.LocallyNameless as Un
 import qualified RIO.Text
 
@@ -158,7 +159,7 @@ instance ToName Text where
 instance ToName Name where
   toName = id
 
--- Funktor
+-- Functor
 instance Functor Un.Embed where
   fmap f (Un.Embed t) = Un.Embed $ f t
 -------------------------------------------------------------------------------
@@ -285,10 +286,10 @@ data (a :*: b) = D a b
 type Mapper m = (Expr -> m Expr) :*: (Decl -> m Decl)
 
 -- Alias for MakeMapExpr
-makeMap ::(Monad m, Un.Fresh m)  => (Expr -> m Expr) -> Mapper m
+makeMap ::(Un.Fresh m)  => (Expr -> m Expr) -> Mapper m
 makeMap = makeMapExpr
 
-makeMapExpr :: (Monad m, Un.Fresh m)  => (Expr -> m Expr) -> Mapper m
+makeMapExpr :: (Un.Fresh m)  => (Expr -> m Expr) -> Mapper m
 makeMapExpr f = D f return
 
 makeMapDecl :: Monad m => (Decl -> m Decl) -> Mapper m
@@ -306,19 +307,22 @@ mapExpr (D f _) = f
 descend :: (Expr -> Expr) -> ScSyn -> ScSyn
 descend f exp = Un.runFreshM (descendM (makeMap (return . f)) exp)
 
-descendM :: (Monad m, Un.Fresh m) => Mapper m -> ScSyn -> m ScSyn
+runDescendM :: (Expr -> Un.FreshM Expr) -> ScSyn -> ScSyn
+runDescendM f syn = Un.runFreshM (descendM (makeMap f) syn)
+
+descendM :: (Un.Fresh m) => Mapper m -> ScSyn -> m ScSyn
 descendM f syn = case syn of
   ScExpr e -> ScExpr <$> descendExprM f e
   ScDecl d -> ScDecl <$> descendDeclM f d
 
-descendDeclM :: (Monad m, Un.Fresh m) => Mapper m -> Decl -> m Decl
+descendDeclM :: (Un.Fresh m) => Mapper m -> Decl -> m Decl
 descendDeclM f d = mapDecl f =<< case d of
   VarDecl n e -> VarDecl n <$> descendExprM f e
   FunDecl n p b -> FunDecl n p <$> descendBodyM f b
   FunDotDecl n ps p b -> FunDotDecl n ps p <$> descendBodyM f b
   FunListDecl n p b -> FunListDecl n p <$> descendBodyM f b
 
-descendExprM :: (Monad m, Un.Fresh m) => Mapper m -> Expr -> m Expr
+descendExprM :: (Un.Fresh m) => Mapper m -> Expr -> m Expr
 descendExprM f e = mapExpr f =<< case e of
   EApp app -> EApp <$> descendApplicationM f app
   EVar name -> return $ EVar name
@@ -331,13 +335,13 @@ descendExprM f e = mapExpr f =<< case e of
   ELit lit -> return $ ELit lit
    -- ESynExt ext -> descendSynExt ext
 
-descendApplicationM :: (Monad m, Un.Fresh m) => Mapper m -> Application -> m Application
+descendApplicationM :: (Un.Fresh m) => Mapper m -> Application -> m Application
 descendApplicationM f e = case e of
   AppPrim primName expr -> AppPrim primName <$> mapM (descendExprM f) expr
   AppLam exprhd expr -> AppLam <$> descendExprM f exprhd <*> mapM (descendExprM f) expr
 
 
-descendLambdaM :: (Monad m, Un.Fresh m) => Mapper m -> Lambda -> m Lambda
+descendLambdaM :: (Un.Fresh m) => Mapper m -> Lambda -> m Lambda
 descendLambdaM f e = case e of
   Lam bnd -> do
     (pats, body) <- Un.unbind bnd
@@ -349,11 +353,11 @@ descendLambdaM f e = case e of
     (pat, body) <- Un.unbind bnd
     LamList . Un.bind pat <$> descendBodyM f body
 
-descendBodyM :: (Monad m, Un.Fresh m) => Mapper m -> Body -> m Body
+descendBodyM :: (Un.Fresh m) => Mapper m -> Body -> m Body
 descendBodyM f b = Body <$> sequence (descendM f <$> unBody b)
 
 
-descendLetM :: (Monad m, Un.Fresh m) => Mapper m -> Let -> m Let
+descendLetM :: (Un.Fresh m) => Mapper m -> Let -> m Let
 descendLetM f e = case e of
   Let bnd -> do
     (patlist, bodyKind) <- Un.unbind bnd
@@ -364,7 +368,7 @@ descendLetM f e = case e of
     Let <$> liftA2 Un.bind newpatlist newbodyKind
 
 
-descendSynExtensionM :: (Monad m, Un.Fresh m) => Mapper m -> SynExtension -> m SynExtension
+descendSynExtensionM :: (Un.Fresh m) => Mapper m -> SynExtension -> m SynExtension
 descendSynExtensionM f e = case e of
   EOr mes -> EOr <$> (mapM . mapM) (descendExprM f) mes
   EAnd mes -> EAnd <$> (mapM . mapM) (descendExprM f) mes
@@ -421,3 +425,11 @@ composeM
   -> (Expr -> m Expr)
   -> (Expr -> m Expr)
 composeM f g = f <=< g
+
+getFreeVars :: (Un.Alpha s) => s -> [Name]
+getFreeVars = L.toListOf Un.fv
+
+makeUniqueName :: (Un.Alpha s) => Name -> s -> Name
+makeUniqueName n s = Un.runLFreshM $ do
+  let frees = Un.AnyName <$> getFreeVars s
+  Un.avoid frees (Un.lfresh n)
