@@ -6,7 +6,6 @@ module Main where
 import Types.Types (Env(..), dummy, SourceFile, ScEnv, Options(..), _fileName, SourceFile(..), ScSyn)
 import Cli (getCLIInput)
 import RIO
-import Data.List (foldr1)
 import Data.Foldable (foldl1)
 import RIO.Directory
 import Types.Pprint (pretty)
@@ -15,12 +14,14 @@ import Sexp.Parser as SexpParser
 import Parser.ScSyn as ScSynParser
 
 import qualified Phases.Toplevel as Top
+import qualified Phases.Simplify as Sim
+import qualified Phases.ANF as ANF
 
 import Prelude (print)
 
 
 phases :: [ScEnv ()]
-phases = [Top.transform]
+phases = [Top.transform, Sim.transform, ANF.transform]
 
 compileAction :: ScEnv ()
 compileAction = foldl1 (>>) phases
@@ -54,7 +55,7 @@ runApp :: SourceFile -- ^ Source
   -> IO ()
 runApp sf top opts action = do
   logOptions' <- logOptionsHandle stderr (_optionsVerbose opts)
-  let logOptions = setLogUseTime True $ setLogUseLoc True logOptions'
+  let logOptions = setLogUseTime False $ setLogUseLoc False logOptions'
   withLogFunc logOptions $ \logFunc -> do
     astRef <- newSomeRef dummy
     let state =

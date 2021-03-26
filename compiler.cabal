@@ -27,6 +27,14 @@ library
   exposed-modules:
       Lib
       Parser.ScSyn
+      Phases.ANF
+      Phases.Assignment
+      Phases.Closure
+      Phases.Core
+      Phases.CPS
+      Phases.Quote
+      Phases.Simplify
+      Phases.Test
       Phases.Toplevel
       Sexp.Literals
       Sexp.Parser

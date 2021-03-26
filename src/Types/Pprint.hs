@@ -87,6 +87,9 @@ instance Pretty Body where
 instance Pretty Name where
   pretty name = pretty $ T.pack $  Un.name2String name
 
+instance Pretty PrimName where
+  pretty (PName (schemeName, _)) = pretty schemeName
+
 instance Pretty Let where
   pretty (Let letbnd) =  Un.runFreshM $ do
     (bindings, body) <- Un.unbind letbnd
@@ -143,6 +146,9 @@ instance Pretty Decl where
 
 instance Display (Doc a) where
   textDisplay = pack . show
+
+instance Display Name where
+  textDisplay = textDisplay . pretty
 
 instance Display ScSyn where
   textDisplay = textDisplay . pretty

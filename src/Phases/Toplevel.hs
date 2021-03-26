@@ -23,6 +23,7 @@ transform :: ScEnv ()
 transform = do
   logInfo "Performing toplevel transformation"
   top <- asks _toplevel
+  logDebug $ "Input Toplevel is:\n" <>  mconcat (display <$> top)
   let top' = toBody top
       topLet = toSyn $ body2Rec top'
       top'' =  go topLet
@@ -38,7 +39,12 @@ body2Rec :: Body -> Expr
 body2Rec oldBody = makeRecBindings  (decl2bind <$> getDecls oldBody) (toBody $ getExprs oldBody)
 
 makeRecBindings :: [(Name, Expr)] -> Body -> Expr
-makeRecBindings = makeLet
+makeRecBindings bindings body =
+  let bindings' =
+        if null bindings
+        then [(makeUniqueName (makeName "toplevel") body, toExpr makeUnspecified)]
+        else bindings in
+    makeLet bindings' body
 
 decl2bind :: Decl -> (Name, Expr)
 decl2bind = \case

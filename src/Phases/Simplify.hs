@@ -5,7 +5,7 @@
 -- 1. We remove lambda with a list as the parameter:
 -- ((lambda (x y . z) (x y z)) 1 2 '(1 2 3))
 -- =>
--- ((lambda (zgen)
+-- ((lambdal zgen
 --    (let ((x (car zgen))
 --          (y (cadr zgen))
 --          (z (cddr zgen))))
@@ -37,7 +37,7 @@ module Phases.Simplify where
 
 import RIO
 import Types.Types
-import Types.Pprint (display)
+import Types.Pprint
 import RIO.State
 import Types.Constructors
 import qualified Unbound.Generics.LocallyNameless as Un
@@ -48,6 +48,12 @@ transform = do
   logInfo "Performing simplify transformation"
   astref <- asks _ast
   ast <- readSomeRef astref
+
+  let frees = getFreeVars ast
+  logDebug $ "Free Vars:\n" <> mconcat (display <$> frees)
+
+  logDebug $ "Uniq name:\n" <> (display $ makeUniqueName (makeName "seqbody") ast)
+
   let ast' = go ast
 
   logDebug $ "Simplified AST:\n" <> display ast'
@@ -56,10 +62,7 @@ transform = do
   return ()
 
 go :: ScSyn -> ScSyn
-go = runDescendM t
-  where
-   t :: Expr -> Un.FreshM Expr
-   t = sequenceLet <=< flattenLet <=< lambdad2lambdal
+go = runDescendM sequenceLet . runDescendM flattenLet . runDescendM lambdad2lambdal
 
 
 lambdad2lambdal :: Expr -> Un.FreshM Expr
@@ -81,13 +84,12 @@ lambdad2lambdal = \case
       (app, _) <- get
       case ns of
         [] -> do
-            modify (second ((dotn, car $ app lamlarg):))
+            modify (second ((dotn, app lamlarg):))
             gets snd
         n:ns -> do
             modify (bimap (cdr .) ((n, car $ app lamlarg):))
             go' lamlarg (ns, dotn)
 
--- first transformation to sequence lets
 flattenLet :: Expr -> Un.FreshM Expr
 flattenLet = \case
   ELet (Let bind) -> do
@@ -104,18 +106,18 @@ flattenLet = \case
 sequenceLet :: Expr -> Un.FreshM Expr
 sequenceLet = \case
   lt@(ELet (Let bind)) -> do
-    (_, body) <- Un.unbind bind
+    (binding, body) <- Un.unbind bind
     let ss@(_:bs) = unBody body
-    if null bs then
+    if null bs then -- Body has one expression
       return lt
-    else
-      return $ go ss
+    else -- Body has >1 expressions
+      makeLet binding <$> go ss
   x -> return x
   where
-    go :: [ScSyn] -> Expr
-    go [s, send] =
-      let uniqName = makeUniqueName (makeName "seqbody") send in
-        makeLet (uniqName, toExpr s) $ toBody send
-    go (s:ss) =
-      let uniqName = makeUniqueName (makeName "seqbody") ss in
-        makeLet (uniqName, toExpr s) $ toBody (go ss)
+    go :: [ScSyn] -> Un.FreshM Expr
+    go [s, send] = do
+      uniqName <- Un.fresh (makeName "seqbody")
+      return $ makeLet (uniqName, toExpr s) send
+    go (s:ss) = do
+      uniqName <- Un.fresh (makeName "seqbody")
+      makeLet (uniqName, toExpr s) <$> go ss

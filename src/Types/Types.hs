@@ -7,9 +7,9 @@
 module Types.Types  where
 
 import RIO hiding (void)
-import RIO.Lens as L
 import qualified Unbound.Generics.LocallyNameless as Un
-import qualified RIO.Text
+import qualified Control.Monad.Cont as C
+
 
 -- Main datatype as a: ReaderT CompilerState IO a
 type ScEnv a = RIO Env a
@@ -37,131 +37,7 @@ instance HasLogFunc Env where
   logFuncL = lens _logF (\x y -> x {_logF = y})
 
 
--------------------------------------------------------------------------------
--- Helper classes
--------------------------------------------------------------------------------
 
-class ToSyn t where
-  toSyn :: t -> ScSyn
-
-class ToExpr t where
-  toExpr :: t -> Expr
-
-class ToDecl t where
-  toDecl :: t -> Decl
-
-class ToBody t where
-  toBody :: t -> Body
-
-class ToEmbed t where
-  toEmbed :: t -> Un.Embed Expr
-
-class ToBinding t where
-  toBinding :: t -> Binding
-
-class ToBind t where
-  toBind :: t -> Un.Bind Binding Body
-
-class ToName t where
-  toName :: t -> Name
-
--- ToSyn
-
-instance ToSyn Decl where
-  toSyn = ScDecl
-
-instance ToSyn Expr where
-  toSyn = ScExpr
-
-instance ToSyn Application where
-  toSyn = toSyn . toExpr
-
-instance ToSyn Name where
-  toSyn = toSyn . toExpr
-
-instance ToSyn Lambda where
-  toSyn = toSyn . toExpr
-
-instance ToSyn Let where
-  toSyn = toSyn . toExpr
-
-instance ToSyn Literal where
-  toSyn = toSyn . toExpr
-
--- ToExpr
-instance ToExpr ScSyn where
-  toExpr (ScExpr e) = e
-
-instance ToExpr Application where
-  toExpr = EApp
-
-instance ToExpr Lambda where
-  toExpr = ELam
-
-instance ToExpr Let where
-  toExpr = ELet
-
-instance ToExpr Literal where
-  toExpr = ELit
-
-instance ToExpr Name where
-  toExpr = EVar
-
--- ToDecl
-instance ToDecl ScSyn where
-  toDecl (ScDecl d) = d
-
--- ToBody
-instance ToBody Body where
-  toBody = id
-
-instance ToBody Expr where
-  toBody e = Body $ toSyn <$> [e]
-
-instance ToBody [Expr] where
-  toBody e = Body $ toSyn <$> e
-
-instance ToBody Literal where
-  toBody = toBody . toExpr
-
-instance ToBody [Literal] where
-  toBody = toBody . fmap toExpr
-
-instance ToBody ScSyn where
-  toBody e = Body [e]
-
-instance ToBody [ScSyn] where
-  toBody = Body
-
--- ToEmbed
-instance ToEmbed Expr where
-  toEmbed = Un.embed
-
-instance ToEmbed (Un.Embed Expr) where
-  toEmbed = id
-
--- ToBinding
-instance (ToName n, ToEmbed e) => ToBinding (n, e) where
-  toBinding (n, e) = [(toName n, toEmbed e)]
-
-instance (ToName n, ToEmbed e) => ToBinding [(n, e)] where
-  toBinding = fmap (bimap toName toEmbed)
-
--- instance ToBind ()
-
--- ToName
-instance ToName String where
-  toName = Un.s2n
-
-instance ToName Text where
-  toName = toName . RIO.Text.unpack
-
-instance ToName Name where
-  toName = id
-
--- Functor
-instance Functor Un.Embed where
-  fmap f (Un.Embed t) = Un.Embed $ f t
 -------------------------------------------------------------------------------
 -- AST
 -------------------------------------------------------------------------------
@@ -215,7 +91,10 @@ data Application
 
 instance Un.Alpha Application
 
-type PrimName = String
+-- Scheme name and RT (Runtime) name
+newtype PrimName = PName {unPName :: (String, String)}
+  deriving (Show, Generic)
+instance Un.Alpha PrimName
 
 data SynExtension
   = ECond CondBody      -- (cond ((#t) (io) 'true) (else 'false))
@@ -354,7 +233,7 @@ descendLambdaM f e = case e of
     LamList . Un.bind pat <$> descendBodyM f body
 
 descendBodyM :: (Un.Fresh m) => Mapper m -> Body -> m Body
-descendBodyM f b = Body <$> sequence (descendM f <$> unBody b)
+descendBodyM f b = Body <$> mapM (descendM f) (unBody b)
 
 
 descendLetM :: (Un.Fresh m) => Mapper m -> Let -> m Let
@@ -368,68 +247,20 @@ descendLetM f e = case e of
     Let <$> liftA2 Un.bind newpatlist newbodyKind
 
 
-descendSynExtensionM :: (Un.Fresh m) => Mapper m -> SynExtension -> m SynExtension
-descendSynExtensionM f e = case e of
-  EOr mes -> EOr <$> (mapM . mapM) (descendExprM f) mes
-  EAnd mes -> EAnd <$> (mapM . mapM) (descendExprM f) mes
-  EBegin es -> EBegin <$> mapM (descendExprM f) es
-  ECond condBody ->
-    do
-      let ml = sequence $ do
-            (e, bodyKind) <- condBody
-            return $ (,) <$> descendExprM f e <*> descendBodyM f bodyKind
-      ECond <$> ml
-  ECase cse caseBody ->
-    do
-      let ml = sequence $ do
-            (e, bodyKind) <- caseBody
-            return $ (e,) <$> descendBodyM f bodyKind
-      ECase <$> descendExprM f cse <*> ml
-  LetStar bindings body -> do
-    let newpatlist = (mapM . mapM) (descendExprM f) bindings
-    let newbodyKind = descendBodyM f body
-    LetStar <$> newpatlist <*> newbodyKind
-
-  LetRec bindings body -> do
-    let newpatlist = (mapM . mapM) (descendExprM f) bindings
-    let newbodyKind = descendBodyM f body
-    LetRec <$> newpatlist <*> newbodyKind
 
 
--------------------------------------------------------------------------------
--- Utils
--------------------------------------------------------------------------------
-isDecl :: ScSyn -> Bool
-isDecl (ScDecl _) = True
-isDecl _ = False
 
-isExpr :: ScSyn -> Bool
-isExpr (ScExpr _) = True
-isExpr _ = False
+makeList' :: Int -> ([Int] -> [Int]) -> [Int]
+makeList' n k =
+  if 0 == n
+  then k []
+  else makeList' (n-1) (\l -> k (n:l))
 
-mapBind f g b = Un.runFreshM $ do
-        (binding, body) <- Un.unbind b
-        let body' = g body
-            binding' = f binding
-        return $ Un.bind binding' body'
 
-compose
-  :: (Expr -> Expr)
-  -> (Expr -> Expr)
-  -> (Expr -> Expr)
-compose f g = f . g
-
-composeM
-  :: (Un.Fresh m)
-  => (Expr -> m Expr)
-  -> (Expr -> m Expr)
-  -> (Expr -> m Expr)
-composeM f g = f <=< g
-
-getFreeVars :: (Un.Alpha s) => s -> [Name]
-getFreeVars = L.toListOf Un.fv
-
-makeUniqueName :: (Un.Alpha s) => Name -> s -> Name
-makeUniqueName n s = Un.runLFreshM $ do
-  let frees = Un.AnyName <$> getFreeVars s
-  Un.avoid frees (Un.lfresh n)
+makeList'' :: Int -> C.Cont [Int] [Int]
+makeList'' n =
+  if 0 == n
+  then return []
+  else do
+    l <- makeList'' (n - 1)
+    return (n:l)
