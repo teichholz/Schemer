@@ -69,9 +69,11 @@ parseExpr = \case
     [Atom id, e] ->  makeSet id <$> parseExpr e
     _ -> throwM $ ParseException "wrong set!")
 
-  List(Atom "apply":tl) -> (case tl of
-    [e1, e2] -> liftA2 makeApply (parseExpr e1) (parseExpr e2)
-    _ -> throwM $ ParseException "wrong apply")
+  List[Atom "apply", lhs, rhs] -> (case lhs of
+   Atom hd | isPrim hd -> makePrimApply (unpack hd) <$> parseExpr lhs
+   Atom hd | isIdent hd -> liftA2 makeLamApply (parseIdent hd) (parseExpr rhs)
+   List _ -> liftA2 makeLamApply (parseExpr lhs) (parseExpr rhs)
+   _ -> throwM $ ParseException "wrong apply")
 
   List(Atom "lambda":tl) -> parseLambda tl
 

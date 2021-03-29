@@ -9,7 +9,6 @@ import RIO
 import Types.Types
 import RIO.Text as T
 import Data.Text.Prettyprint.Doc
-import qualified Unbound.Generics.LocallyNameless as Un
 
 
 -------------------------------------------------------------------------------
@@ -84,30 +83,18 @@ instance Pretty Literal where
 instance Pretty Body where
   pretty b =  doIndent $ align (vsep $ pretty <$> unBody b)
 
-instance Pretty Name where
-  pretty name = pretty $ T.pack $  Un.name2String name
-
 instance Pretty PrimName where
   pretty (PName (schemeName, _)) = pretty schemeName
 
 instance Pretty Let where
-  pretty (Let letbnd) =  Un.runFreshM $ do
-    (bindings, body) <- Un.unbind letbnd
-    let bnds = (fmap . fmap) (\(Un.Embed e) -> e) bindings
-    return $ mkLet bnds body
+  pretty (Let bnds body) = mkLet bnds body
 
 instance Pretty Lambda where
-  pretty (Lam bnd) = Un.runFreshM $ do
-    (ps, body) <- Un.unbind bnd
-    return $ inParens ("lambda" <+> mkParamList ps <> pretty body)
+  pretty (Lam ps body) = inParens ("lambda" <+> mkParamList ps <> pretty body)
 
-  pretty (LamDot bnd) = Un.runFreshM $ do
-    ((ps, p), body) <- Un.unbind bnd
-    return $ inParens ("lambda" <+> mkParamListDot ps p <> pretty body)
+  pretty (LamDot (ps, p) body) = inParens ("lambda" <+> mkParamListDot ps p <> pretty body)
 
-  pretty (LamList bnd) = Un.runFreshM $ do
-    (p, body) <- Un.unbind bnd
-    return $ inParens ("lambda" <+> pretty p <> pretty body)
+  pretty (LamList p body) = inParens ("lambda" <+> pretty p <> pretty body)
 
 instance Pretty Application where
   pretty (AppPrim n es) =
@@ -131,6 +118,7 @@ instance Pretty Expr where
   pretty (ELit lit) = pretty lit
   pretty (ESynExt _) = "Syntactic Extension"
 
+
 instance Pretty Decl where
   pretty (VarDecl n e) =
     inParens ("define" <+> vertDocs [pretty n, pretty e])
@@ -147,8 +135,8 @@ instance Pretty Decl where
 instance Display (Doc a) where
   textDisplay = pack . show
 
-instance Display Name where
+instance Display ScSyn where
   textDisplay = textDisplay . pretty
 
-instance Display ScSyn where
+instance Display String where
   textDisplay = textDisplay . pretty

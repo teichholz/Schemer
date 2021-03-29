@@ -39,8 +39,8 @@ import RIO
 import Types.Types
 import Types.Pprint
 import RIO.State
+import Prelude (print)
 import Types.Constructors
-import qualified Unbound.Generics.LocallyNameless as Un
 
 
 transform :: ScEnv ()
@@ -52,29 +52,31 @@ transform = do
   let frees = getFreeVars ast
   logDebug $ "Free Vars:\n" <> mconcat (display <$> frees)
 
-  logDebug $ "Uniq name:\n" <> (display $ makeUniqueName (makeName "seqbody") ast)
+  logDebug $ "Uniq name:\n" <> display (makeUniqueName "seqbody" ast)
 
   let ast' = go ast
 
   logDebug $ "Simplified AST:\n" <> display ast'
+  logDebug $ display $ show ast'
+
 
   writeSomeRef astref ast'
   return ()
 
 go :: ScSyn -> ScSyn
-go = runDescendM sequenceLet . runDescendM flattenLet . runDescendM lambdad2lambdal
+go = runIdentity sequenceLet . runIdentity flattenLet . runIdentity lambdad2lambdal
 
+type IE = Identity Expr
 
-lambdad2lambdal :: Expr -> Un.FreshM Expr
+lambdad2lambdal :: Expr -> IE
 lambdad2lambdal = \case
   ELam lam -> go lam
   x -> return x
   where
-    go ::(Un.Fresh m) => Lambda -> m Expr
+    go :: Lambda -> IE Expr
     go = \case
-      LamDot bind -> do
-        ((args, dotarg), body) <- Un.unbind bind
-        lamlarg <- Un.fresh dotarg
+      LamDot (args, dotarg) body -> do
+        lamlarg <- return dotarg -- todo make unique
         let binding = toBinding $ evalState (go' (toExpr lamlarg) (args, dotarg)) (id, [])
         return $ makeLamList lamlarg (makeLet binding body)
       x -> return $ toExpr x
@@ -90,11 +92,9 @@ lambdad2lambdal = \case
             modify (bimap (cdr .) ((n, car $ app lamlarg):))
             go' lamlarg (ns, dotn)
 
-flattenLet :: Expr -> Un.FreshM Expr
+flattenLet :: Expr -> IE Expr
 flattenLet = \case
-  ELet (Let bind) -> do
-    (p, t) <- Un.unbind bind
-    return $ go p t
+  ELet (Let p t) -> return $ go p t
   x -> return x
   where
     go :: Binding -> Body -> Expr
@@ -103,10 +103,9 @@ flattenLet = \case
       b:tl -> makeLet (toBinding b) (toBody $ go tl body)
 
 
-sequenceLet :: Expr -> Un.FreshM Expr
+sequenceLet :: Expr -> IE Expr
 sequenceLet = \case
-  lt@(ELet (Let bind)) -> do
-    (binding, body) <- Un.unbind bind
+  lt@(ELet (Let binding body)) -> do
     let ss@(_:bs) = unBody body
     if null bs then -- Body has one expression
       return lt
@@ -114,10 +113,10 @@ sequenceLet = \case
       makeLet binding <$> go ss
   x -> return x
   where
-    go :: [ScSyn] -> Un.FreshM Expr
+    go :: [ScSyn] -> IE Expr
     go [s, send] = do
-      uniqName <- Un.fresh (makeName "seqbody")
+      let uniqName = makeUniqueName "seqbody" send
       return $ makeLet (uniqName, toExpr s) send
     go (s:ss) = do
-      uniqName <- Un.fresh (makeName "seqbody")
+      let uniqName = makeUniqueName "seqbody" ss
       makeLet (uniqName, toExpr s) <$> go ss

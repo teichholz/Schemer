@@ -1,19 +1,20 @@
 -- |
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE DeriveDataTypeable, DeriveGeneric, MultiParamTypeClasses #-}
+
+
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Types.Constructors where
 
 import RIO
 import RIO.Text (unpack, pack)
 import Types.Types
-import qualified Unbound.Generics.LocallyNameless as Un
 import qualified Utils.NameResolver as NR
+import RIO.List.Partial (head)
 import RIO.Lens as L
 import qualified RIO.Set as S
 import qualified RIO.Text
+import qualified Data.Text as T
 
 
 
@@ -33,14 +34,8 @@ class ToDecl t where
 class ToBody t where
   toBody :: t -> Body
 
-class ToEmbed t where
-  toEmbed :: t -> Un.Embed Expr
-
 class ToBinding t where
   toBinding :: t -> Binding
-
-class ToBind t where
-  toBind :: t -> Un.Bind Binding Body
 
 class ToName t where
   toName :: t -> Name
@@ -75,6 +70,9 @@ instance ToSyn Literal where
 instance ToExpr Expr where
   toExpr = id
 
+instance ToExpr [Expr] where
+  toExpr [e] = e
+
 instance ToExpr ScSyn where
   toExpr (ScExpr e) = e
 
@@ -84,11 +82,11 @@ instance ToExpr [ScSyn] where
 instance ToExpr Body where
   toExpr (Body ss) = toExpr ss
 
-instance ToExpr (Un.Embed Expr) where
-  toExpr (Un.Embed e) = e
-
 instance ToExpr Application where
   toExpr = EApp
+
+instance ToExpr Apply where
+  toExpr = EApply
 
 instance ToExpr Lambda where
   toExpr = ELam
@@ -101,6 +99,9 @@ instance ToExpr Literal where
 
 instance ToExpr Name where
   toExpr = EVar
+
+instance ToExpr String where
+  toExpr = EVar . toName
 
 -- ToDecl
 instance ToDecl ScSyn where
@@ -128,34 +129,37 @@ instance ToBody ScSyn where
 instance ToBody [ScSyn] where
   toBody = Body
 
--- ToEmbed
-instance ToEmbed Expr where
-  toEmbed = Un.embed
-
-instance ToEmbed [Expr] where
-  toEmbed [e] = Un.embed e
-
-instance ToEmbed (Un.Embed Expr) where
-  toEmbed = id
-
 -- ToBinding
-instance (ToName n, ToEmbed e) => ToBinding (n, e) where
-  toBinding (n, e) = [(toName n, toEmbed e)]
+instance (ToName n, ToExpr e) => ToBinding (n, e) where
+  toBinding (n, e) = [(toName n, toExpr e)]
 
-instance (ToName n, ToEmbed e) => ToBinding [(n, e)] where
-  toBinding = fmap (bimap toName toEmbed)
+instance (ToName n, ToExpr e) => ToBinding [(n, e)] where
+  toBinding = fmap (bimap toName toExpr)
 
 -- instance ToBind ()
 
 -- ToName
 instance ToName String where
-  toName = Un.s2n
+  toName = T.pack
 
-instance ToName Text where
-  toName = toName . RIO.Text.unpack
+-- instance ToName Text where
+--   toName = toName . RIO.Text.unpack
 
 instance ToName Name where
   toName = id
+
+instance ToName Utf8Builder  where
+  toName = toName . textDisplay
+
+-- IsString for OverloadedStrings pragma
+-- instance IsString Name where
+--   fromString = toName
+
+instance IsString Expr where
+  fromString = EVar . toName
+
+instance IsString PrimName where
+  fromString = toPrimName
 
 -- ToPrimName
 instance ToPrimName PrimName where
@@ -166,10 +170,6 @@ instance ToPrimName String where
 
 instance ToPrimName Text where
   toPrimName = toPrimName . unpack
-
--- Functor
-instance Functor Un.Embed where
-  fmap f (Un.Embed t) = Un.Embed $ f t
 
 
 -------------------------------------------------------------------------------
@@ -182,20 +182,33 @@ makePrimApp n exprs = toExpr $ AppPrim (toPrimName n) exprs
 makeLamApp :: Expr -> [Expr] -> Expr
 makeLamApp expr exprs = toExpr $ AppLam expr exprs
 
+makePrimApply :: ToPrimName n => n -> Expr -> Expr
+makePrimApply n expr = toExpr $ ApplyPrim (toPrimName n) expr
+
+makeLamApply :: Expr -> Expr -> Expr
+makeLamApply expr1 expr2 = toExpr $ ApplyLam expr1 expr2
+
 makeVar :: String -> Expr
 makeVar = EVar . makeName . pack
 
 makeName :: Text -> Name
-makeName = Un.s2n . unpack
+makeName = id
 
-makeLam :: (ToBody b, ToName n) => [n] -> b -> Expr
-makeLam names b = toExpr $ Lam $ Un.bind (toName <$> names) $ toBody b
+makeLam :: (ToBody b, ToName n, IsString n) => [n] -> b -> Expr
+makeLam names b = toExpr $ Lam  (toName <$> names) (toBody b)
 
 makeLamDot :: (ToBody b, ToName n, ToName n2) => [n] -> n2 -> b -> Expr
-makeLamDot names name b = toExpr $ LamDot $ Un.bind (toName <$> names, toName name) $ toBody b
+makeLamDot names name b = toExpr $ LamDot (toName <$> names, toName name) (toBody b)
 
 makeLamList :: (ToBody b, ToName n) => n -> b -> Expr
-makeLamList name b = toExpr $ LamList $ Un.bind (toName name) $ toBody b
+makeLamList name b = toExpr $ LamList (toName name) (toBody b)
+
+-- prepends the newarg variable to the argument list
+extendLamList :: (ToName n, ToExpr n, ToBody b) => n -> n -> b -> Expr
+extendLamList newarg oldarg body =
+  makeLamList oldarg
+    (makeLet (newarg, car $ toExpr oldarg)
+      (makeLet (oldarg, cdr $ toExpr oldarg) (toBody body)))
 
 makeFunDecl :: (ToBody b, ToName n, ToName n2) => n -> [n2] -> b -> Decl
 makeFunDecl n ps b = FunDecl (toName n) (toName <$> ps) $ toBody b
@@ -209,7 +222,7 @@ makeFunListDecl n p b = FunListDecl (toName n) (toName p) $ toBody b
 makeLet :: (ToBinding b, ToBody b2) => b -> b2 -> Expr
 makeLet bindings body =
   let bindings' = toBinding bindings in
-    ELet $ Let $ Un.bind bindings' (toBody body)
+    ELet $ Let bindings' (toBody body)
 
 makeIf3 :: Expr -> Expr -> Expr -> Expr
 makeIf3 = EIf
@@ -220,8 +233,6 @@ makeIf2 tst thn = EIf tst thn (toExpr makeUnspecified)
 makeSet :: (ToName n) => n -> Expr -> Expr
 makeSet n = ESet (toName n)
 
-makeApply :: Expr -> Expr -> Expr
-makeApply = EApply
 
 makeCallCC :: Expr -> Expr
 makeCallCC = ECallCC
@@ -299,16 +310,15 @@ isExpr :: ScSyn -> Bool
 isExpr (ScExpr _) = True
 isExpr _ = False
 
-mapBind f g b = Un.runFreshM $ do
-        (binding, body) <- Un.unbind b
-        let body' = g body
-            binding' = f binding
-        return $ Un.bind binding' body'
+isLamApp :: Expr -> Bool
+isLamApp (EApp (AppLam _ _)) = True
+isLamApp _ = False
 
-getFreeVars :: (Un.Alpha s) => s -> [Name]
-getFreeVars = L.toListOf Un.fv
+makeName' :: String -> Int -> Name
+makeName' s i = toName $ s <> show i
 
-makeUniqueName :: (Un.Alpha s, ToName n) => n -> s -> Name
-makeUniqueName n s =
-  let frees = S.fromList $ Un.AnyName <$> getFreeVars s in
-  Un.contLFreshM (Un.lfresh $ toName n) frees
+makeUniqueName :: (FreeVars e) => String -> e -> Name
+makeUniqueName n e =
+  let frees =  fv e in
+    toName $ head $ filter (\n -> not $ S.member n frees)
+                           (fmap (makeName' n) [0..])

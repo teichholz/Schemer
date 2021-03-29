@@ -7,7 +7,6 @@ module Utils.NameResolver (getCname, isPrim) where
 import RIO
 import Types.Types (Name)
 import RIO.Text
-import qualified Unbound.Generics.LocallyNameless as Un
 import Data.List as L
 import Data.Maybe as M
 
@@ -42,9 +41,6 @@ instance IsVarName String where
 
 instance IsVarName Text where
   getName = id
-
-instance IsVarName Name where
-  getName = getName . Un.name2String
 
 isPrim :: (IsVarName a) => a -> Bool
 isPrim a = L.any ((getName a ==) . (\(n, _, _) -> getName n)) prims

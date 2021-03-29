@@ -22,7 +22,6 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - rio >= 0.1.12.0
-- unbound-generics
 - megaparsec
 - prettyprinter
 - text

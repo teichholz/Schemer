@@ -1,14 +1,16 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TupleSections #-}
+
 {-# LANGUAGE DeriveDataTypeable, DeriveGeneric, MultiParamTypeClasses #-}
 -- | Compiler types
 
 module Types.Types  where
 
 import RIO hiding (void)
-import qualified Unbound.Generics.LocallyNameless as Un
 import qualified Control.Monad.Cont as C
+import Data.Text.Prettyprint.Doc
+import qualified RIO.Set as S
+import qualified Data.Text as T
 
 
 -- Main datatype as a: ReaderT CompilerState IO a
@@ -36,8 +38,6 @@ data Options = Options
 instance HasLogFunc Env where
   logFuncL = lens _logF (\x y -> x {_logF = y})
 
-
-
 -------------------------------------------------------------------------------
 -- AST
 -------------------------------------------------------------------------------
@@ -53,16 +53,12 @@ data ScSyn
   | ScExpr Expr
   deriving (Show, Generic, Typeable)
 
-instance Un.Alpha ScSyn
-
 data Decl
   = FunDecl Name Params Body
   | FunDotDecl Name Params Param Body
   | FunListDecl Name Param Body
   | VarDecl Name Expr
   deriving (Show, Generic, Typeable)
-
-instance Un.Alpha Decl
 
 type Param = Name
 type Params = [Name]
@@ -74,27 +70,27 @@ data Expr
   | ELet Let           -- (let ((x 21)) (+ x x))
   | EIf Expr Expr Expr  -- (if test then else)
   | ESet Name Expr
-  | EApply Expr Expr
+  | EApply Apply
   | ECallCC Expr
   | ELit Literal -- '(1 2 3 4), ...
   | ESynExt SynExtension -- makros
   deriving (Show, Generic, Typeable)
 
-type Name = Un.Name Expr
+type Name = Text
 
-instance Un.Alpha Expr
+data Apply
+  = ApplyPrim PrimName Expr
+  | ApplyLam Expr Expr
+  deriving (Show, Generic, Typeable)
 
 data Application
   = AppPrim PrimName [Expr]
   | AppLam Expr [Expr]
   deriving (Show, Generic, Typeable)
 
-instance Un.Alpha Application
-
 -- Scheme name and RT (Runtime) name
 newtype PrimName = PName {unPName :: (String, String)}
   deriving (Show, Generic)
-instance Un.Alpha PrimName
 
 data SynExtension
   = ECond CondBody      -- (cond ((#t) (io) 'true) (else 'false))
@@ -107,8 +103,6 @@ data SynExtension
   deriving (Show, Generic, Typeable)
 
 
-instance Un.Alpha SynExtension
-
 type CondBody
   = [(Expr, Body)] -- (test expr1 expr2 ...)
 
@@ -116,25 +110,18 @@ type CaseBody
   = [([Literal], Body)] -- (test expr1 expr2 ...)
 
 data Lambda
-  = Lam (Un.Bind [Name] Body)
-  | LamDot (Un.Bind ([Name], Name) Body)
-  | LamList (Un.Bind Name Body)
+  = Lam [Name] Body
+  | LamDot ([Name], Name) Body
+  | LamList Name Body
   deriving (Show, Generic, Typeable)
 
-instance Un.Alpha Lambda
+type Binding = [(Name, Expr)]
 
-newtype Let
-  = Let (Un.Bind [(Name, Un.Embed Expr)] Body)
+data Let = Let [(Name, Expr)] Body
   deriving (Show, Generic, Typeable)
-
-type Binding = [(Name, Un.Embed Expr)]
-
-instance Un.Alpha Let
 
 newtype Body = Body { unBody :: [ScSyn]}
   deriving (Show, Generic, Typeable)
-
-instance Un.Alpha Body
 
 data Literal
   = LitString String
@@ -149,7 +136,6 @@ data Literal
   | LitUnspecified
   deriving (Show, Generic, Typeable)
 
-instance Un.Alpha Literal
 -- Post-Desugar
 
 data Core
@@ -165,10 +151,10 @@ data (a :*: b) = D a b
 type Mapper m = (Expr -> m Expr) :*: (Decl -> m Decl)
 
 -- Alias for MakeMapExpr
-makeMap ::(Un.Fresh m)  => (Expr -> m Expr) -> Mapper m
+makeMap ::(Monad m)  => (Expr -> m Expr) -> Mapper m
 makeMap = makeMapExpr
 
-makeMapExpr :: (Un.Fresh m)  => (Expr -> m Expr) -> Mapper m
+makeMapExpr :: (Monad m)  => (Expr -> m Expr) -> Mapper m
 makeMapExpr f = D f return
 
 makeMapDecl :: Monad m => (Decl -> m Decl) -> Mapper m
@@ -184,24 +170,21 @@ mapExpr :: Mapper m -> Expr -> m Expr
 mapExpr (D f _) = f
 
 descend :: (Expr -> Expr) -> ScSyn -> ScSyn
-descend f exp = Un.runFreshM (descendM (makeMap (return . f)) exp)
+descend f exp = runIdentity (descendM (makeMap (return . f)) exp)
 
-runDescendM :: (Expr -> Un.FreshM Expr) -> ScSyn -> ScSyn
-runDescendM f syn = Un.runFreshM (descendM (makeMap f) syn)
-
-descendM :: (Un.Fresh m) => Mapper m -> ScSyn -> m ScSyn
+descendM :: (Monad m) => Mapper m -> ScSyn -> m ScSyn
 descendM f syn = case syn of
   ScExpr e -> ScExpr <$> descendExprM f e
   ScDecl d -> ScDecl <$> descendDeclM f d
 
-descendDeclM :: (Un.Fresh m) => Mapper m -> Decl -> m Decl
+descendDeclM :: (Monad m) => Mapper m -> Decl -> m Decl
 descendDeclM f d = mapDecl f =<< case d of
   VarDecl n e -> VarDecl n <$> descendExprM f e
   FunDecl n p b -> FunDecl n p <$> descendBodyM f b
   FunDotDecl n ps p b -> FunDotDecl n ps p <$> descendBodyM f b
   FunListDecl n p b -> FunListDecl n p <$> descendBodyM f b
 
-descendExprM :: (Un.Fresh m) => Mapper m -> Expr -> m Expr
+descendExprM :: (Monad m) => Mapper m -> Expr -> m Expr
 descendExprM f e = mapExpr f =<< case e of
   EApp app -> EApp <$> descendApplicationM f app
   EVar name -> return $ EVar name
@@ -209,45 +192,41 @@ descendExprM f e = mapExpr f =<< case e of
   ELet letb -> ELet <$> descendLetM f letb
   EIf tst thn els -> EIf <$> descendExprM f tst <*> descendExprM f thn <*> descendExprM f els
   ESet name expr -> ESet name <$> descendExprM f expr
-  EApply expr1 expr2 -> liftA2 EApply (descendExprM f expr1) (descendExprM f expr2)
+  EApply apply -> EApply <$> descendApplyM f apply
   ECallCC expr -> ECallCC <$> descendExprM f expr
   ELit lit -> return $ ELit lit
    -- ESynExt ext -> descendSynExt ext
 
-descendApplicationM :: (Un.Fresh m) => Mapper m -> Application -> m Application
+descendApplyM :: (Monad m) => Mapper m -> Apply -> m Apply
+descendApplyM f e = case e of
+  ApplyPrim primName expr -> ApplyPrim primName <$> descendExprM f expr
+  ApplyLam exprhd expr -> ApplyLam <$> descendExprM f exprhd <*> descendExprM f expr
+
+descendApplicationM :: (Monad m) => Mapper m -> Application -> m Application
 descendApplicationM f e = case e of
   AppPrim primName expr -> AppPrim primName <$> mapM (descendExprM f) expr
   AppLam exprhd expr -> AppLam <$> descendExprM f exprhd <*> mapM (descendExprM f) expr
 
 
-descendLambdaM :: (Un.Fresh m) => Mapper m -> Lambda -> m Lambda
+descendLambdaM :: (Monad m) => Mapper m -> Lambda -> m Lambda
 descendLambdaM f e = case e of
-  Lam bnd -> do
-    (pats, body) <- Un.unbind bnd
-    Lam . Un.bind pats <$> descendBodyM f body
-  LamDot bnd -> do
-    ((pats, pat), body) <- Un.unbind bnd
-    LamDot . Un.bind (pats, pat) <$> descendBodyM f body
-  LamList bnd -> do
-    (pat, body) <- Un.unbind bnd
-    LamList . Un.bind pat <$> descendBodyM f body
+  Lam pats body ->
+    Lam pats <$> descendBodyM f body
+  LamDot (pats, pat) body ->
+    LamDot (pats, pat) <$> descendBodyM f body
+  LamList pat body ->
+    LamList pat <$> descendBodyM f body
 
-descendBodyM :: (Un.Fresh m) => Mapper m -> Body -> m Body
+descendBodyM :: (Monad m) => Mapper m -> Body -> m Body
 descendBodyM f b = Body <$> mapM (descendM f) (unBody b)
 
 
-descendLetM :: (Un.Fresh m) => Mapper m -> Let -> m Let
+descendLetM :: (Monad m) => Mapper m -> Let -> m Let
 descendLetM f e = case e of
-  Let bnd -> do
-    (patlist, bodyKind) <- Un.unbind bnd
-    let newpatlist =
-         (fmap . fmap) Un.Embed <$>
-         (mapM . mapM) (descendExprM f) (fmap (\ (n, Un.Embed e) -> (n, e)) patlist)
+  Let patlist bodyKind -> do
+    let newpatlist = (mapM . mapM) (descendExprM f) patlist
     let newbodyKind = descendBodyM f bodyKind
-    Let <$> liftA2 Un.bind newpatlist newbodyKind
-
-
-
+    liftA2 Let newpatlist newbodyKind
 
 
 makeList' :: Int -> ([Int] -> [Int]) -> [Int]
@@ -264,3 +243,58 @@ makeList'' n =
   else do
     l <- makeList'' (n - 1)
     return (n:l)
+
+
+
+-------------------------------------------------------------------------------
+-- Free vars calculation
+-------------------------------------------------------------------------------
+
+class FreeVars e where
+  fv :: e -> S.Set Name
+
+instance FreeVars a => FreeVars [a] where
+  fv = S.unions . fmap fv
+
+instance FreeVars Name where
+  fv = S.singleton
+
+instance FreeVars ScSyn where
+  fv (ScDecl d) = fv d
+  fv (ScExpr e) = fv e
+
+instance FreeVars Body where
+  fv (Body b) = fv b
+
+instance FreeVars Decl where
+  fv (FunDecl _ ps b) = fv ps  S.\\ fv b
+  fv (FunDotDecl _ ps p b) = fv (p:ps) S.\\ fv b
+  fv (FunListDecl _ p b) = fv p S.\\ fv b
+  fv (VarDecl _ e) = fv e
+
+instance FreeVars Expr where
+  fv (EApp app) = fv app
+  fv (EVar name) = fv name
+  fv (ELam lam) = fv lam
+  fv (ELet lt) = fv lt
+  fv (EIf tst thn els) = S.unions [fv tst, fv thn, fv els]
+  fv (ESet _ e) = fv e
+  fv (EApply apply) = fv apply
+  fv (ECallCC e) = fv e
+  fv (ELit _) = S.empty
+
+instance FreeVars Apply where
+  fv (ApplyPrim _ e) = fv e
+  fv (ApplyLam e1 e2) = fv e1 `S.union` fv e2
+
+instance FreeVars Application where
+  fv (AppPrim _ es) = fv es
+  fv (AppLam e es) = fv (e:es)
+
+instance FreeVars Lambda where
+  fv (Lam ps b) = fv ps  S.\\ fv b
+  fv (LamDot (ps, p) b) = fv (p:ps) S.\\ fv b
+  fv (LamList p b) = fv p S.\\ fv b
+
+instance FreeVars Let where
+  fv (Let bind body) = fv (fst <$> bind) S.\\ fv body

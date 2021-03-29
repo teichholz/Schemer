@@ -16,8 +16,6 @@ import RIO.List
 import RIO.Text (pack)
 import Types.Types
 import Types.Constructors
-import qualified Unbound.Generics.LocallyNameless as Un
-
 
 transform :: ScEnv ()
 transform = do
@@ -36,13 +34,13 @@ transform = do
 
 -- getDecls -> map decl2Bind -> makeRecBindings
 body2Rec :: Body -> Expr
-body2Rec oldBody = makeRecBindings  (decl2bind <$> getDecls oldBody) (toBody $ getExprs oldBody)
+body2Rec oldBody = makeRecBindings (decl2bind <$> getDecls oldBody) (toBody $ getExprs oldBody)
 
 makeRecBindings :: [(Name, Expr)] -> Body -> Expr
 makeRecBindings bindings body =
   let bindings' =
         if null bindings
-        then [(makeUniqueName (makeName "toplevel") body, toExpr makeUnspecified)]
+        then [(makeUniqueName "toplevel" body, toExpr makeUnspecified)]
         else bindings in
     makeLet bindings' body
 
@@ -59,23 +57,18 @@ getDecls = fmap toDecl . filter isDecl . unBody
 getExprs :: Body -> [Expr]
 getExprs = fmap toExpr . filter isExpr . unBody
 
-hasDecls :: Un.Alpha p => Un.Bind p Body -> Bool
-hasDecls b = Un.runFreshM $ do
-        (_, body) <- Un.unbind b
-        let decl = getDecls body
-        return $ not $ null decl
+hasDecls :: Body -> Bool
+hasDecls b = let decl = getDecls body in not $ null decl
 
 go :: ScSyn -> ScSyn
 go = descend go'
   where
     go' :: Expr -> Expr
     go' = \case
-      ELet (Let bind) -> toExpr $ Let $ body2RecIfHasDecls bind
+      ELet (Let pat body) -> makeLet pat $ body2RecIfHasDecls body
       ELam lam -> case lam of
-        Lam bind -> toExpr $ Lam $ body2RecIfHasDecls bind
-        LamDot bind -> toExpr $ LamDot $ body2RecIfHasDecls bind
-        LamList bind -> toExpr $ LamList $ body2RecIfHasDecls bind
+        Lam pats body -> makeLam pats $ body2RecIfHasDecls bind
+        LamDot pats pat body -> makeLamDot pats pat $ body2RecIfHasDecls bind
+        LamList pat body -> makeLamList pat $ body2RecIfHasDecls bind
       x -> x
-    body2RecIfHasDecls b =
-      if hasDecls b then  mapBind id (toBody . body2Rec) b else b
-
+    body2RecIfHasDecls b = if hasDecls b then body2Rec b else b
