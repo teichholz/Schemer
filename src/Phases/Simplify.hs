@@ -49,11 +49,6 @@ transform = do
   astref <- asks _ast
   ast <- readSomeRef astref
 
-  let frees = getFreeVars ast
-  logDebug $ "Free Vars:\n" <> mconcat (display <$> frees)
-
-  logDebug $ "Uniq name:\n" <> display (makeUniqueName "seqbody" ast)
-
   let ast' = go ast
 
   logDebug $ "Simplified AST:\n" <> display ast'
@@ -63,8 +58,10 @@ transform = do
   writeSomeRef astref ast'
   return ()
 
+run =  runDescendM runIdentity
+
 go :: ScSyn -> ScSyn
-go = runIdentity sequenceLet . runIdentity flattenLet . runIdentity lambdad2lambdal
+go = run sequenceLet . run flattenLet . run lambdad2lambdal
 
 type IE = Identity Expr
 
@@ -73,10 +70,10 @@ lambdad2lambdal = \case
   ELam lam -> go lam
   x -> return x
   where
-    go :: Lambda -> IE Expr
+    go :: Lambda -> IE
     go = \case
       LamDot (args, dotarg) body -> do
-        lamlarg <- return dotarg -- todo make unique
+        let lamlarg = makeUniqueName (show dotarg) dotarg
         let binding = toBinding $ evalState (go' (toExpr lamlarg) (args, dotarg)) (id, [])
         return $ makeLamList lamlarg (makeLet binding body)
       x -> return $ toExpr x
@@ -92,7 +89,7 @@ lambdad2lambdal = \case
             modify (bimap (cdr .) ((n, car $ app lamlarg):))
             go' lamlarg (ns, dotn)
 
-flattenLet :: Expr -> IE Expr
+flattenLet :: Expr -> IE
 flattenLet = \case
   ELet (Let p t) -> return $ go p t
   x -> return x
@@ -103,7 +100,7 @@ flattenLet = \case
       b:tl -> makeLet (toBinding b) (toBody $ go tl body)
 
 
-sequenceLet :: Expr -> IE Expr
+sequenceLet :: Expr -> IE
 sequenceLet = \case
   lt@(ELet (Let binding body)) -> do
     let ss@(_:bs) = unBody body
@@ -113,7 +110,7 @@ sequenceLet = \case
       makeLet binding <$> go ss
   x -> return x
   where
-    go :: [ScSyn] -> IE Expr
+    go :: [ScSyn] -> IE
     go [s, send] = do
       let uniqName = makeUniqueName "seqbody" send
       return $ makeLet (uniqName, toExpr s) send

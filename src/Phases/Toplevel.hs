@@ -58,7 +58,7 @@ getExprs :: Body -> [Expr]
 getExprs = fmap toExpr . filter isExpr . unBody
 
 hasDecls :: Body -> Bool
-hasDecls b = let decl = getDecls body in not $ null decl
+hasDecls b = let decl = getDecls b in not $ null decl
 
 go :: ScSyn -> ScSyn
 go = descend go'
@@ -67,8 +67,8 @@ go = descend go'
     go' = \case
       ELet (Let pat body) -> makeLet pat $ body2RecIfHasDecls body
       ELam lam -> case lam of
-        Lam pats body -> makeLam pats $ body2RecIfHasDecls bind
-        LamDot pats pat body -> makeLamDot pats pat $ body2RecIfHasDecls bind
-        LamList pat body -> makeLamList pat $ body2RecIfHasDecls bind
+        Lam pats body -> makeLam pats $ body2RecIfHasDecls body
+        LamDot (pats, pat) body -> makeLamDot pats pat $ body2RecIfHasDecls body
+        LamList pat body -> makeLamList pat $ body2RecIfHasDecls body
       x -> x
-    body2RecIfHasDecls b = if hasDecls b then body2Rec b else b
+    body2RecIfHasDecls b = if hasDecls b then toBody $ body2Rec b else b

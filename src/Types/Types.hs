@@ -172,6 +172,9 @@ mapExpr (D f _) = f
 descend :: (Expr -> Expr) -> ScSyn -> ScSyn
 descend f exp = runIdentity (descendM (makeMap (return . f)) exp)
 
+runDescendM :: Monad m => (m ScSyn -> ScSyn) -> (Expr -> m Expr)  -> ScSyn -> ScSyn
+runDescendM run f syn = run (descendM (makeMap f) syn)
+
 descendM :: (Monad m) => Mapper m -> ScSyn -> m ScSyn
 descendM f syn = case syn of
   ScExpr e -> ScExpr <$> descendExprM f e
