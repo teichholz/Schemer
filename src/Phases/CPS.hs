@@ -15,9 +15,10 @@ transform = do
   astref <- asks _ast
   ast <- readSomeRef astref
 
-  logDebug $ "AST in CPS:\n" <> display ast
+  let ast' = go ast
+  logDebug $ "AST in CPS:\n" <> display ast'
 
-  writeSomeRef astref ast
+  writeSomeRef astref ast'
   return ()
 
 
@@ -37,7 +38,7 @@ tAe e = case e of
 
   ELam (LamList pat body) -> do
     let cont = makeUniqueName "cont" e
-    extendLamList cont pat body
+    extendLamList cont pat body -- Extends the list parameter with cont
 
   x -> x
 
@@ -49,11 +50,12 @@ appLamBind _ = False
 -- Traverses ast, adds cont (lambda) to non-primitive application calls. Gets rid of call/cc. Calls cont on return values (last expr).
 t :: Expr -- ^ Expr to transform into CPS
   -> Expr -- ^ Continuation argument to normalize with
-  -> Expr
+  -> Expr -- ^ Expr in CPS
 t e c = case e of
   -- Primtive calls in return positions will be letbound and the cont called on the body of the let. Thus they return they pass their value to the continuation and "return"
   EApp (AppPrim _ _) -> t (ret e) c
   EApply (ApplyPrim _ _ ) -> t (ret e) c
+  ESet _ _ -> t (ret e) c
 
   -- Propagate tAe, remember that ANF forces non-atomic expressions to applications/applys to be letbound
   ELet l@(Let pat body) | not $ appLamBind l -> do
@@ -62,6 +64,7 @@ t e c = case e of
                   EApp (AppPrim n es) -> makePrimApp n (tAe <$> es)
                   EApply (ApplyPrim n e) -> makePrimApply n (tAe e)
                   ELam _ -> tAe rhs
+                  ESet n e -> makeSet n (tAe e)
                   x -> x
 
     makeLet (lhs, rhs') (t (toExpr body) c)
@@ -74,6 +77,11 @@ t e c = case e of
     let [(arg, lamApp)] = pat
     let cont = makeLam [arg] (t (toExpr body) c)
     t lamApp cont
+
+  ECallCC e -> do
+    let name = makeUniqueName "callcc" e
+    makeLet (name, callcc)
+      (makeLamApp (toExpr name) [c, tAe e])
 
   -- Expressions in return posititon
   -- add cont to the argument list
@@ -98,3 +106,13 @@ ret :: Expr -> Expr
 ret e =
   let ret = makeUniqueName "ret" e in
     makeLet (ret, e) (toExpr ret)
+
+
+go :: ScSyn -> ScSyn
+go = toSyn . go' . toExpr
+  where
+    go' :: Expr -> Expr
+    go' e = do
+      makeLet
+        ("display" :: Name, makeLam ["final" :: Name] [makePrimApp ("halt" :: PrimName') ["final" :: Expr]])
+        (t e ("display" :: Expr))

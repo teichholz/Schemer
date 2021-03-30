@@ -89,7 +89,14 @@ data Application
   deriving (Show, Generic, Typeable)
 
 -- Scheme name and RT (Runtime) name
+-- Example: + (Scheme) and plus (RT)
 newtype PrimName = PName {unPName :: (String, String)}
+  deriving (Show, Generic)
+
+-- These represent methods needed by the runtime itself.
+-- These don't have an actual Scheme counterpart which is used for pretty printing.
+-- Example: halt (RT), no Scheme counterpart
+newtype PrimName' = PName' {unPName' :: String}
   deriving (Show, Generic)
 
 data SynExtension

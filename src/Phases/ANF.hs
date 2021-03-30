@@ -17,6 +17,7 @@ import Types.Types
 import Types.Constructors
 import Types.Pprint
 
+instance MonadFail Identity where
 
 
 transform :: ScEnv ()
@@ -27,14 +28,17 @@ transform = do
   let ast' = go ast
 
   logDebug $ "AST in ANF:\n" <> display ast'
-  logDebug $ display $ show ast'
 
   writeSomeRef astref ast'
   return ()
 
 -- The Cont monad represents computations in continuation passing style.
 -- That is, we call a continuation with [Expr] as argument, which will itself produce an [Expr] based on the [Expr] argument.
-type Cont = C.Cont [Expr] [Expr]
+data K = Es [Expr] | E Expr
+type Cont = C.Cont K K
+
+getE :: K -> Expr
+getE (E e) = e
 
 -- Exprs that instantly return a value, thus they are atomic.
 isValue :: Expr -> Bool
@@ -46,66 +50,69 @@ isValue _ = False
 go :: ScSyn -> ScSyn
 go = toSyn . normalizeTerm . toExpr
 
+normalizeTermWith :: ToExpr e => e -> (K -> K) -> Expr
+normalizeTermWith e f = getE $ runCont (normalize e) f
+
 normalizeTerm :: ToExpr e => e -> Expr
-normalizeTerm e = head $ runCont (normalize e) id
+normalizeTerm e = normalizeTermWith e id
 
 normalize :: ToExpr e => e -> Cont
 normalize e = case toExpr e of
   ELam (Lam pat body) -> do
-    let lam =  makeLam pat (normalizeTerm body)
-    return [lam]
+      let lam =  makeLam pat (normalizeTerm body)
+      return $ E lam
 
   ELam (LamList pat body) -> do
       let lam =  makeLamList pat (normalizeTerm body)
-      return [lam]
+      return $ E lam
 
   ELet (Let [(n, eexpr)] body) -> do
-      n1 <- normalize eexpr
-      cont $ \k -> [makeLet (n, n1) (runCont (normalize body) k)]
+      E n1 <- normalize eexpr
+      cont $ \k -> E $ makeLet (n, n1) (normalizeTermWith body k)
 
   EIf tst thn els -> do
-      tst' <- normalizeName [tst]
-      return [makeIf3 (head tst') (normalizeTerm thn) (normalizeTerm els)]
+      E tst' <- normalizeName tst
+      return $ E $ makeIf3 tst' (normalizeTerm thn) (normalizeTerm els)
 
   EApp app -> case app of
      AppPrim n es -> do
-       es' <- normalizeNames es
-       return [makePrimApp n es']
+       Es es' <- normalizeNames es
+       return $ E $ makePrimApp n es'
      AppLam e es -> do
-       e' <- normalizeName [e]
-       es' <- normalizeNames es
-       return [makeLamApp (head e') es']
+       E e' <- normalizeName e
+       Es es' <- normalizeNames es
+       return $ E $ makeLamApp e' es'
 
   ESet n e -> do
-       return [makeSet n (normalizeTerm e)]
+       return $ E $ makeSet n (normalizeTerm e)
 
   EApply app -> case app of
      ApplyPrim n e -> do
-       e' <- normalizeName [e]
-       return [makePrimApply n (head e')]
+       E e' <- normalizeName e
+       return $ E $ makePrimApply n e'
      ApplyLam e e2 -> do
-       e1' <- normalizeName [e]
-       e2' <- normalizeName [e2]
-       return [makeLamApply (head e1') (head e2')]
+       E e1' <- normalizeName e
+       E e2' <- normalizeName e2
+       return $ E $ makeLamApply e1' e2'
 
-  e -> return [e]
+  e -> return $ E e
 
-normalizeName :: [Expr] -> Cont
-normalizeName [e] = do
+normalizeName :: Expr -> Cont
+normalizeName e = do
   let n' = makeUniqueName "anf" e
-  n <- normalize e
-  if isValue $ head n then
-    return n
+  E n <- normalize e
+  if isValue n then
+    return $ E n
   else do
     let var = toExpr n'
-    cont $ \k -> [makeLet (n', n) (k [var])]
+    cont $ \k -> E $ makeLet (n', n) (getE $ k $ E var)
 
 normalizeNames :: [Expr] -> Cont
 normalizeNames es =
   if null es then
-    return []
+    return $ Es []
   else do
     let (e:es') = es
-    n <- normalizeName [e]
-    ns <- normalizeNames es'
-    return $ n++ns
+    E n <- normalizeName e
+    Es ns <- normalizeNames es'
+    return $ Es $ n:ns

@@ -161,9 +161,15 @@ instance IsString Expr where
 instance IsString PrimName where
   fromString = toPrimName
 
+instance IsString PrimName' where
+  fromString = PName'
+
 -- ToPrimName
 instance ToPrimName PrimName where
   toPrimName = id
+
+instance ToPrimName PrimName' where
+  toPrimName (PName' n) = PName (n,n)
 
 instance ToPrimName String where
   toPrimName s = PName (s, NR.getCname s)

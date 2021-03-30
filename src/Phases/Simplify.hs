@@ -52,8 +52,6 @@ transform = do
   let ast' = go ast
 
   logDebug $ "Simplified AST:\n" <> display ast'
-  logDebug $ display $ show ast'
-
 
   writeSomeRef astref ast'
   return ()
@@ -73,7 +71,7 @@ lambdad2lambdal = \case
     go :: Lambda -> IE
     go = \case
       LamDot (args, dotarg) body -> do
-        let lamlarg = makeUniqueName (show dotarg) dotarg
+        let lamlarg = makeUniqueName (show dotarg <> "'") dotarg
         let binding = toBinding $ evalState (go' (toExpr lamlarg) (args, dotarg)) (id, [])
         return $ makeLamList lamlarg (makeLet binding body)
       x -> return $ toExpr x
