@@ -16,6 +16,7 @@
 module Phases.Assignment where
 import RIO
 import RIO.State
+import qualified RIO.Map as M
 import RIO.Set as S
 import Types.Types
 import Types.Constructors
@@ -29,62 +30,96 @@ transform = do
   astref <- asks _ast
   ast <- readSomeRef astref
 
-  let ast' = ast
-  logDebug $ "AST after assignment transformation:\n" <> display ast
+  -- logDebug $ display $ unAlpha $ runAlpha ast
+  let (ast', frees) = go ast'
+  logDebug $ "Free variables in AST:\n" <> display (show frees)
+  logDebug $ "AST after assignment transformation:\n" <> display ast'
 
-  -- logDebug $ display $ show $ execState (go ast') S.empty
-
-  writeSomeRef astref ast'
+  -- writeSomeRef astref ast'
   return ()
 
-go :: SynN -> SynN
-go = runDescendM (`evalState` S.empty) removeSet
-
 -- All mutated Variables
-type Mutated = S.Set Name
+type Mutated = S.Set UniqName
 type SM = State Mutated
 
+go :: ScSyn Name -> (ScSyn Name, Mutated)
+go syn =
+  let syn' = runAlpha syn
+      (syn'', frees) = runState (descendM (makeMap removeSet) syn') S.empty in
+    (unAlpha syn'', frees)
+
 -- Wraps an expression in a vector, called Box
-makeBox :: ExprN -> ExprN
-makeBox e = makePrimApp ("make-vector" :: PrimName') [makeInt 0, e]
+makeBox :: Expr UniqName -> Expr UniqName
+makeBox e = makePrimApp ("make-vector" :: PrimName) [ELit $ LitInt 0, e]
 
 -- Wraps the Expr in a Binding in a Box
-makeBoxBinding :: BindN -> BindN
+makeBoxBinding :: Binding UniqName -> Binding UniqName
 makeBoxBinding [(n, e)] = [(n, makeBox e)]
 
 -- Sets the value of a Box
-makeBoxSet :: ExprN -> ExprN
-makeBoxSet (ESet n e) = makePrimApp ("vector-set!" :: PrimName') [toExpr n, makeInt 0, e]
+makeBoxSet :: Expr a -> Int -> Expr a
+makeBoxSet (ESet n e) i = makePrimApp ("vector-set!" :: PrimName) [EVar n, ELit $ LitInt i, e]
 
 -- Gets the value of a Box
-makeBoxGet :: ExprN -> ExprN
-makeBoxGet (EVar n) = makePrimApp ("vector-ref" :: PrimName') [toExpr n, makeInt 0]
+makeBoxGet :: Expr a -> Int -> Expr a
+makeBoxGet var@(EVar _) i = makePrimApp ("vector-ref" :: PrimName) [var, ELit $ LitInt i]
 
-isMutated' :: Mutated -> Name -> Bool
+isMutated' :: Mutated -> UniqName -> Bool
 isMutated' m n = S.member n m
 
-add :: Name -> Mutated -> Mutated
+add :: UniqName -> Mutated -> Mutated
 add = S.union . S.singleton
 
-removeSet :: ExprN -> SM ExprN
+-- Calls makeBox* on Vars, respecting their index in the Vector
+callBox :: [(UniqName, Int)]
+  -> Body UniqName
+  -> Body UniqName
+callBox al b =
+  runIdentity $ runReaderT (descendBodyM (makeMap f) b) (M.fromList al)
+  where
+    f :: Expr UniqName -> ReaderT (M.Map UniqName Int) Identity  (Expr UniqName)
+    f e = do
+      map <- ask
+      case e of
+        EVar n -> do
+          let pair = M.lookup n map
+          if isJust pair then do
+            let (Just i) = pair
+            return $ makeBoxGet e i
+          else do
+            return e
+        ESet n _ -> do
+          let pair = M.lookup n map
+          if isJust pair then do
+            let (Just i) = pair
+            return $ makeBoxSet e i
+          else do
+            return e
+
+        x -> return x
+
+removeSet :: Expr UniqName -> SM (Expr UniqName)
 removeSet e = do
   ms <- get -- mutated vars
   let isMutated = isMutated' ms
 
   case e of
     ESet n _ -> do
-      modify $ add n
-      return $ makeBoxSet e
+      modify (add n)
+      return e
 
-    EVar n | isMutated n ->
-      return $ makeBoxGet e
+    ELet (Let pat@[(n, _)] b) | isMutated n -> do
+      let b' = callBox [(n, 0)] b
+      return $ ELet $ Let (makeBoxBinding pat) b'
 
-    ELet (Let pat@[(n, _)] body) ->
-      if isMutated n then
-        return $ makeLet (makeBoxBinding pat) body
-      else
-        return e
+    EApp (AppLam e es) -> return $ makeLamApp e [makeVectorFromList es]
 
-    -- ELam (Lam ns b) ->
+    ELam (Lam ns b) -> do
+      let b' = callBox (zip ns [0..]) b
+      return $ ELam $ Lam ns b'
+
+    ELam (LamList n b) -> do
+      let b' = callBox [(n, 0)] b
+      return $ ELam $ LamList n b'
 
     x -> return x

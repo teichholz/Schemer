@@ -311,7 +311,7 @@ instance FreeVars a => FreeVars (Let a) where
 
 -- fst = unique name, snd = scheme name
 data UniqName = UName Name Int
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 type NameMap = M.Map Name UniqName
 type Counter = Int
 
@@ -321,12 +321,20 @@ makeUniqName = UName
 addUniqName :: Name -> UniqName -> NameMap -> NameMap
 addUniqName = M.insert
 
-runAlpha :: ScSyn Name -> ScSyn UniqName
-runAlpha syn = evalState (alpha syn) (0, M.empty)
+runAlpha :: (Alphatization e) =>  e Name -> e UniqName
+runAlpha e = evalState (alpha e) (0, M.empty)
 
-unAlpha :: ScSyn UniqName -> ScSyn Name
+unAlpha :: Functor e => e UniqName -> e Name
 unAlpha = fmap (\(UName n _) -> n)
 
+callWithAlpha :: (Alphatization e, Functor e) => (e UniqName -> e UniqName) -> e Name -> e Name
+callWithAlpha f = unAlpha . f . runAlpha
+
+callWithAlphaM :: (Alphatization e, Functor e, Monad m) => (e UniqName -> m (e UniqName)) -> e Name -> m (e Name)
+callWithAlphaM f = fmap unAlpha . f . runAlpha
+
+
+-- TODO Is there some way to use travereable for this?
 class Alphatization e where
   alpha :: e Name -> State (Counter, NameMap) (e UniqName)
 

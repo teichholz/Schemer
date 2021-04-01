@@ -86,6 +86,9 @@ instance Pretty a => Pretty (Body a) where
 instance Pretty PrimName where
   pretty (PName (schemeName, _)) = pretty schemeName
 
+instance Pretty UniqName where
+  pretty (UName n i) = pretty n <> "@" <> pretty i
+
 instance Pretty a => Pretty (Let a) where
   pretty (Let bnds body) = mkLet bnds body
 

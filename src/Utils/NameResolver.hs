@@ -46,6 +46,8 @@ isPrim :: (IsVarName a) => a -> Bool
 isPrim a = L.any ((getName a ==) . (\(n, _, _) -> getName n)) prims
 
 getCname :: String -> String
-getCname str = M.fromJust $ do
-  (_, cname, _) <- L.find ((str==) . (\(n, _, _) -> n)) prims
-  return cname
+getCname str = head $ do
+  (sname, cname, _) <- prims
+  if sname == str || cname == str then
+    return cname
+  else []

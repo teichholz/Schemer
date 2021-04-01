@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 -- |
 {-# LANGUAGE FlexibleInstances #-}
@@ -13,6 +14,7 @@ import RIO
 import RIO.Text (unpack, pack)
 import Types.Types
 import qualified Utils.NameResolver as NR
+import Data.Foldable (foldr1)
 import RIO.List.Partial (head)
 import RIO.Lens as L
 import qualified RIO.Set as S
@@ -290,11 +292,20 @@ makeDecl = ScDecl
 makeVarDecl :: (ToName n) => n -> Expr Name -> Decl Name
 makeVarDecl t = VarDecl (toName t)
 
+cons :: Expr a -> Expr a -> Expr a
+cons car cdr = makePrimApp ("cons" :: PrimName) [car, cdr]
+
 car :: Expr a -> Expr a
-car e = makePrimApp ("car" :: String) [e]
+car e = makePrimApp ("car" :: PrimName) [e]
 
 cdr :: Expr a -> Expr a
-cdr e = makePrimApp ("cdr" :: String) [e]
+cdr e = makePrimApp ("cdr" :: PrimName) [e]
+
+makeConsList :: [Expr a] -> Expr a
+makeConsList = foldr1 cons
+
+makeVectorFromList :: [Expr a] -> Expr a
+makeVectorFromList es = makePrimApp ("list2vector" :: PrimName) [makeConsList es]
 
 -- if' :: Bool -> a -> a -> a
 -- if' True  x _ = x
