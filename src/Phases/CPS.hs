@@ -22,15 +22,15 @@ transform = do
   return ()
 
 
-callcc :: Expr
+callcc :: Expr Name
 callcc = makeLam ["cc" :: Name, "f"]
-           (makeLamApp ("f" :: Expr)
-              ["cc" :: Expr,
+           (makeLamApp ("f" :: Expr Name)
+              ["cc" :: Expr Name,
                makeLam ["_" :: Name, "x"]
-                (makeLamApp ("cc" :: Expr) ["x" :: Expr])])
+                (makeLamApp ("cc" :: Expr Name) ["x" :: Expr Name])])
 
 -- Adds cont parameter to lambda, trasforms the body
-tAe :: Expr -> Expr
+tAe :: Expr Name -> Expr Name
 tAe e = case e of
   ELam (Lam pat body) -> do
     let cont = makeUniqueName "cont" e
@@ -43,14 +43,14 @@ tAe e = case e of
   x -> x
 
 -- Checks wether a let binds a lambda application
-appLamBind :: Let -> Bool
+appLamBind :: Let Name -> Bool
 appLamBind (Let [(_, e)] _) = isLamApp e
 appLamBind _ = False
 
 -- Traverses ast, adds cont (lambda) to non-primitive application calls. Gets rid of call/cc. Calls cont on return values (last expr).
-t :: Expr -- ^ Expr to transform into CPS
-  -> Expr -- ^ Continuation argument to normalize with
-  -> Expr -- ^ Expr in CPS
+t :: Expr Name -- ^ Expr to transform into CPS
+  -> Expr Name -- ^ Continuation argument to normalize with
+  -> Expr Name -- ^ Expr in CPS
 t e c = case e of
   -- Primtive calls in return positions will be letbound and the cont called on the body of the let. Thus they return they pass their value to the continuation and "return"
   EApp (AppPrim _ _) -> t (ret e) c
@@ -102,17 +102,17 @@ t e c = case e of
   x -> makeLamApp c [x]
 
 
-ret :: Expr -> Expr
+ret :: Expr Name -> Expr Name
 ret e =
   let ret = makeUniqueName "ret" e in
     makeLet (ret, e) (toExpr ret)
 
 
-go :: ScSyn -> ScSyn
+go :: ScSyn Name -> ScSyn Name
 go = toSyn . go' . toExpr
   where
-    go' :: Expr -> Expr
+    go' :: Expr Name -> Expr Name
     go' e = do
       makeLet
-        ("display" :: Name, makeLam ["final" :: Name] [makePrimApp ("halt" :: PrimName') ["final" :: Expr]])
-        (t e ("display" :: Expr))
+        ("display" :: Name, makeLam ["final" :: Name] [makePrimApp ("halt" :: PrimName') ["final" :: Expr Name]])
+        (t e ("display" :: Expr Name))

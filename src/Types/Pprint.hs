@@ -42,19 +42,19 @@ mkVertList = inParens . vertDocs
 doIndent :: Doc ann -> Doc ann
 doIndent d = nest ind (line <> d)
 
-mkLet :: [(Name, Expr)] -> Body -> Doc ann
+mkLet :: Pretty a => [(a, Expr a)] -> Body a -> Doc ann
 mkLet bindings body =
   inParens $ "let" <+> mkBinding bindings <> pretty body
   where
-    mkBind :: (,) Name Expr -> Doc ann
+    mkBind :: Pretty a => (,) a (Expr a) -> Doc ann
     mkBind (n, e) = mkList [pretty n, pretty e]
-    mkBinding ::  [(Name, Expr)] -> Doc ann
+    mkBinding :: Pretty a => [(a, Expr a)] -> Doc ann
     mkBinding bnds = mkVertList $ fmap mkBind bnds
 
-mkParamList :: [Name] -> Doc ann
+mkParamList :: Pretty a => [a] -> Doc ann
 mkParamList names = mkList $ pretty <$> names
 
-mkParamListDot :: [Name] -> Name -> Doc ann
+mkParamListDot :: Pretty a => [a] -> a -> Doc ann
 mkParamListDot ns n = mkList $
   (pretty <$> ns) ++ [".", pretty n]
 
@@ -80,33 +80,33 @@ instance Pretty Literal where
   pretty (LitVector vec) = "#" <> pretty (LitList vec)
   pretty LitUnspecified  = "unspecified"
 
-instance Pretty Body where
+instance Pretty a => Pretty (Body a) where
   pretty b =  doIndent $ align (vsep $ pretty <$> unBody b)
 
 instance Pretty PrimName where
   pretty (PName (schemeName, _)) = pretty schemeName
 
-instance Pretty Let where
+instance Pretty a => Pretty (Let a) where
   pretty (Let bnds body) = mkLet bnds body
 
-instance Pretty Lambda where
+instance Pretty a => Pretty (Lambda a) where
   pretty (Lam ps body) = inParens ("lambda" <+> mkParamList ps <> pretty body)
 
   pretty (LamDot (ps, p) body) = inParens ("lambda" <+> mkParamListDot ps p <> pretty body)
 
   pretty (LamList p body) = inParens ("lambda" <+> pretty p <> pretty body)
 
-instance Pretty Application where
+instance Pretty a => Pretty (Application a) where
   pretty (AppPrim n es) =
     inParens (pretty n <> doIndent (vertDocs $ pretty <$> es))
   pretty (AppLam e es) =
     inParens (pretty e <> doIndent (vertDocs $ pretty <$> es))
 
-instance Pretty ScSyn where
+instance Pretty a => Pretty (ScSyn a) where
   pretty (ScDecl d) = pretty d
   pretty (ScExpr e) = pretty e
 
-instance Pretty Expr where
+instance Pretty a => Pretty (Expr a) where
   pretty (EApp app) = pretty app
   pretty (EVar name) = pretty name
   pretty (ELam lam) = pretty lam
@@ -116,10 +116,9 @@ instance Pretty Expr where
   pretty (ESet n e) =
     inParens ("set!" <> doIndent (pretty n) <> doIndent (pretty e))
   pretty (ELit lit) = pretty lit
-  pretty (ESynExt _) = "Syntactic Extension"
 
 
-instance Pretty Decl where
+instance Pretty a => Pretty (Decl a) where
   pretty (VarDecl n e) =
     inParens ("define" <+> vertDocs [pretty n, pretty e])
   pretty (FunDecl n ps b) =
@@ -135,7 +134,7 @@ instance Pretty Decl where
 instance Display (Doc a) where
   textDisplay = pack . show
 
-instance Display ScSyn where
+instance Pretty a => Display (ScSyn a) where
   textDisplay = textDisplay . pretty
 
 instance Display String where

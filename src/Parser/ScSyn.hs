@@ -21,15 +21,15 @@ data Args
   | Dotted [Name] Name
   deriving (Show)
 
-runParser :: Sexp -> IO ScSyn
+runParser :: Sexp -> IO (ScSyn Name)
 runParser = \case
   List(Atom "define":tl) -> makeDecl <$> parseDecl tl
   e -> makeExp <$> parseExpr e
 
-parseL :: [Sexp] -> IO [ScSyn]
+parseL :: [Sexp] -> IO [ScSyn Name]
 parseL = mapM runParser
 
-parseDecl :: [Sexp] -> IO Decl
+parseDecl :: [Sexp] -> IO (Decl Name)
 parseDecl = \case
   [Atom name,expr] -> makeVarDecl name <$> parseExpr expr
   List[Atom name, Atom ".", Atom arg]:body -> makeFunListDecl name arg <$> parseL body
@@ -40,10 +40,10 @@ parseDecl = \case
       Dotted args arg -> makeFunDotDecl (toName name) args arg <$> parseL body
   _ -> throwM $ ParseException "Wrong define"
 
-parseExprs :: [Sexp] -> IO [Expr]
+parseExprs :: [Sexp] -> IO [Expr Name]
 parseExprs = mapM parseExpr
 
-parseExpr :: Sexp -> IO Expr
+parseExpr :: Sexp -> IO (Expr Name)
 parseExpr = \case
   List(Atom "let":tl) -> (case tl of
     List bindings:body -> liftA2 makeLet (parseBindings bindings) (parseL body)
@@ -53,17 +53,6 @@ parseExpr = \case
     [e1, e2, e3] -> liftA3 makeIf3 (parseExpr e1) (parseExpr e2) (parseExpr e3)
     [e1, e2    ] -> liftA2 makeIf2 (parseExpr e1) (parseExpr e2)
     _ -> throwM $ ParseException "Wrong if")
-
-  List(Atom "begin":tl) ->
-    makeBegin <$> parseExprs tl
-
-  List(Atom "or":tl) -> (case tl of
-    []   -> return $ makeOr Nothing
-    list -> makeOr . Just <$> parseExprs list)
-
-  List(Atom "and":tl) -> (case tl of
-    []   -> return $ makeAnd Nothing
-    list -> makeAnd . Just <$> parseExprs list)
 
   List(Atom "set!":tl) -> (case tl of
     [Atom id, e] ->  makeSet id <$> parseExpr e
@@ -88,20 +77,19 @@ parseExpr = \case
     List _ -> liftA2 makeLamApp (parseExpr hd) (parseExprs tl)
     _ -> throwM $ ParseException "Wrong application"
 
-
   Atom x -> parseAtom (Atom x)
 
   _ -> throwM $ ParseException "Wrong expression"
 
-parseAtom :: Sexp -> IO Expr
+parseAtom :: Sexp -> IO (Expr Name)
 parseAtom = \case
   Atom x | isIdent x -> parseIdent x
-  x -> makeLiteral <$> parseLit x
+  x -> parseLit x
 
-parseIdent :: Text -> IO Expr
+parseIdent :: Text -> IO (Expr Name)
 parseIdent x = return $ makeVar (parseLiteral varLiteral x)
 
-parseLit :: Sexp -> IO Literal
+parseLit :: Sexp -> IO (Expr Name)
 parseLit = \case
   Atom x | isString x -> return $ makeString (parseLiteral stringLiteral x)
   Atom x | isChar x -> return $ makeChar (parseLiteral charLiteral x)
@@ -111,17 +99,17 @@ parseLit = \case
   _ -> throwM $ ParseException "Wrong literal"
 
 
-parseBindings :: [Sexp] -> IO [(Name, Expr)]
+parseBindings :: [Sexp] -> IO [(Name, Expr Name)]
 parseBindings = sequence . go
   where
-    go :: [Sexp] -> [IO (Name, Expr)]
+    go :: [Sexp] -> [IO (Name, Expr Name)]
     go = \case
       List[Atom id, expr]:tl -> let t =  mapM parseExpr (makeName id, expr) in t:go tl
       [] -> []
       _ -> throwM $ ParseException "Wrong binding form"
 
 
-parseLambda :: [Sexp] -> IO Expr
+parseLambda :: [Sexp] -> IO (Expr Name)
 parseLambda = \case
   List argl:body -> do
     args <- parseArgs argl

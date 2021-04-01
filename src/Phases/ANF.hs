@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 
 {-# LANGUAGE OverloadedStrings #-}
 -- | 3. Phase: Transformation to administrative normal form
@@ -17,7 +18,7 @@ import Types.Types
 import Types.Constructors
 import Types.Pprint
 
-instance MonadFail Identity where
+instance MonadFail Identity
 
 
 transform :: ScEnv ()
@@ -34,29 +35,29 @@ transform = do
 
 -- The Cont monad represents computations in continuation passing style.
 -- That is, we call a continuation with [Expr] as argument, which will itself produce an [Expr] based on the [Expr] argument.
-data K = Es [Expr] | E Expr
+data K = Es [Expr Name] | E (Expr Name)
 type Cont = C.Cont K K
 
-getE :: K -> Expr
+getE :: K -> Expr Name
 getE (E e) = e
 
 -- Exprs that instantly return a value, thus they are atomic.
-isValue :: Expr -> Bool
+isValue :: Expr Name -> Bool
 isValue (ELit _) = True
 isValue (ELam _) = True
 isValue (EVar _) = True
 isValue _ = False
 
-go :: ScSyn -> ScSyn
+go :: ScSyn Name -> ScSyn Name
 go = toSyn . normalizeTerm . toExpr
 
-normalizeTermWith :: ToExpr e => e -> (K -> K) -> Expr
+normalizeTermWith :: ToExpr e Name => e -> (K -> K) -> Expr Name
 normalizeTermWith e f = getE $ runCont (normalize e) f
 
-normalizeTerm :: ToExpr e => e -> Expr
+normalizeTerm :: ToExpr e Name => e -> Expr Name
 normalizeTerm e = normalizeTermWith e id
 
-normalize :: ToExpr e => e -> Cont
+normalize :: ToExpr e Name => e -> Cont
 normalize e = case toExpr e of
   ELam (Lam pat body) -> do
       let lam =  makeLam pat (normalizeTerm body)
@@ -97,7 +98,7 @@ normalize e = case toExpr e of
 
   e -> return $ E e
 
-normalizeName :: Expr -> Cont
+normalizeName :: Expr Name -> Cont
 normalizeName e = do
   let n' = makeUniqueName "anf" e
   E n <- normalize e
@@ -107,7 +108,7 @@ normalizeName e = do
     let var = toExpr n'
     cont $ \k -> E $ makeLet (n', n) (getE $ k $ E var)
 
-normalizeNames :: [Expr] -> Cont
+normalizeNames :: [Expr Name] -> Cont
 normalizeNames es =
   if null es then
     return $ Es []

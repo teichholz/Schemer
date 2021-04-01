@@ -37,6 +37,7 @@ ghc-options:
 - -Wincomplete-uni-patterns
 - -Wpartial-fields
 - -Wredundant-constraints
+- -Wno-unused-imports
 
 library:
   source-dirs:

@@ -1,6 +1,9 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE TypeFamilies #-}
 -- |
 {-# LANGUAGE FlexibleInstances #-}
-
 
 {-# LANGUAGE MultiParamTypeClasses #-}
 
@@ -22,20 +25,23 @@ import qualified Data.Text as T
 -- Helper classes
 -------------------------------------------------------------------------------
 
-class ToSyn t where
-  toSyn :: t -> ScSyn
+-- To understand these, check out:
+-- - https://wiki.haskell.org/Functional_dependencies
+-- - https://www.fpcomplete.com/haskell/tutorial/fundeps/ (extra)
+class ToSyn t a | t -> a where
+  toSyn :: t -> ScSyn a
 
-class ToExpr t where
-  toExpr :: t -> Expr
+class ToExpr t a | t -> a where
+  toExpr :: t -> Expr a
 
-class ToDecl t where
-  toDecl :: t -> Decl
+class ToDecl t a | t -> a where
+  toDecl :: t -> Decl a
 
-class ToBody t where
-  toBody :: t -> Body
+class ToBody t a | t -> a where
+  toBody :: t -> Body a
 
-class ToBinding t where
-  toBinding :: t -> Binding
+class ToBinding t a | t -> a where
+  toBinding :: t -> Binding a
 
 class ToName t where
   toName :: t -> Name
@@ -45,100 +51,100 @@ class ToPrimName t where
 
 -- ToSyn
 
-instance ToSyn Decl where
+instance ToSyn (Decl a) a where
   toSyn = ScDecl
 
-instance ToSyn Expr where
+instance ToSyn (Expr a) a where
   toSyn = ScExpr
 
-instance ToSyn Application where
+instance ToSyn (Application a) a where
   toSyn = toSyn . toExpr
 
-instance ToSyn Name where
+instance ToSyn Name Name where
   toSyn = toSyn . toExpr
 
-instance ToSyn Lambda where
+instance ToSyn (Lambda a) a where
   toSyn = toSyn . toExpr
 
-instance ToSyn Let where
+instance ToSyn (Let a) a where
   toSyn = toSyn . toExpr
 
-instance ToSyn Literal where
+instance ToSyn Literal Name where
   toSyn = toSyn . toExpr
 
 -- ToExpr
-instance ToExpr Expr where
+instance ToExpr (Expr a) a where
   toExpr = id
 
-instance ToExpr [Expr] where
+instance ToExpr [Expr a] a where
   toExpr [e] = e
 
-instance ToExpr ScSyn where
+instance ToExpr (ScSyn a) a where
   toExpr (ScExpr e) = e
 
-instance ToExpr [ScSyn] where
+instance ToExpr [ScSyn a] a where
   toExpr (ScExpr e:_) = e
 
-instance ToExpr Body where
+instance ToExpr (Body a) a where
   toExpr (Body ss) = toExpr ss
 
-instance ToExpr Application where
+instance ToExpr (Application a) a where
   toExpr = EApp
 
-instance ToExpr Apply where
+instance ToExpr (Apply a) a where
   toExpr = EApply
 
-instance ToExpr Lambda where
+instance ToExpr (Lambda a) a where
   toExpr = ELam
 
-instance ToExpr Let where
+instance ToExpr (Let a) a where
   toExpr = ELet
 
-instance ToExpr Literal where
+instance ToExpr Literal Name where
   toExpr = ELit
 
-instance ToExpr Name where
+instance ToExpr Name Name where
   toExpr = EVar
 
-instance ToExpr String where
+instance ToExpr String Name where
   toExpr = EVar . toName
 
--- ToDecl
-instance ToDecl ScSyn where
+-- -- ToDecl
+instance ToDecl (ScSyn a) a where
   toDecl (ScDecl d) = d
 
--- ToBody
-instance ToBody Body where
+-- -- ToBody
+instance ToBody (Body a) a where
   toBody = id
 
-instance ToBody Expr where
+instance ToBody (Expr a) a where
   toBody e = Body $ toSyn <$> [e]
 
-instance ToBody [Expr] where
+instance ToBody [Expr a] a where
   toBody e = Body $ toSyn <$> e
 
-instance ToBody Literal where
+instance ToBody Literal Name where
   toBody = toBody . toExpr
 
-instance ToBody [Literal] where
+instance ToBody [Literal] Name where
   toBody = toBody . fmap toExpr
 
-instance ToBody ScSyn where
+instance ToBody (ScSyn a) a where
   toBody e = Body [e]
 
-instance ToBody [ScSyn] where
+instance ToBody [ScSyn a] a where
   toBody = Body
 
--- ToBinding
-instance (ToName n, ToExpr e) => ToBinding (n, e) where
+-- -- ToBinding
+instance (ToName n, ToExpr e Name) => ToBinding (n, e) Name where
   toBinding (n, e) = [(toName n, toExpr e)]
 
-instance (ToName n, ToExpr e) => ToBinding [(n, e)] where
+instance (ToName n, ToExpr e Name) => ToBinding [(n, e)] Name where
   toBinding = fmap (bimap toName toExpr)
 
--- instance ToBind ()
+-- -- instance ToBind ()
 
--- ToName
+-- -- ToName
 instance ToName String where
   toName = T.pack
 
@@ -155,8 +161,8 @@ instance ToName Utf8Builder  where
 -- instance IsString Name where
 --   fromString = toName
 
-instance IsString Expr where
-  fromString = EVar . toName
+instance IsString (Expr Name) where
+  fromString = toExpr . toName
 
 instance IsString PrimName where
   fromString = toPrimName
@@ -164,7 +170,7 @@ instance IsString PrimName where
 instance IsString PrimName' where
   fromString = PName'
 
--- ToPrimName
+-- -- ToPrimName
 instance ToPrimName PrimName where
   toPrimName = id
 
@@ -182,141 +188,131 @@ instance ToPrimName Text where
 -- Constructors
 -------------------------------------------------------------------------------
 
-makePrimApp :: ToPrimName n => n -> [Expr] -> Expr
+makePrimApp :: ToPrimName n => n -> [Expr a] -> Expr a
 makePrimApp n exprs = toExpr $ AppPrim (toPrimName n) exprs
 
-makeLamApp :: Expr -> [Expr] -> Expr
+makeLamApp :: Expr a -> [Expr a] -> Expr a
 makeLamApp expr exprs = toExpr $ AppLam expr exprs
 
-makePrimApply :: ToPrimName n => n -> Expr -> Expr
+makePrimApply :: ToPrimName n => n -> Expr a -> Expr a
 makePrimApply n expr = toExpr $ ApplyPrim (toPrimName n) expr
 
-makeLamApply :: Expr -> Expr -> Expr
+makeLamApply :: Expr a -> Expr a -> Expr a
 makeLamApply expr1 expr2 = toExpr $ ApplyLam expr1 expr2
 
-makeVar :: String -> Expr
+makeVar :: String -> Expr Name
 makeVar = EVar . makeName . pack
 
 makeName :: Text -> Name
 makeName = id
 
-makeLam :: (ToBody b, ToName n, IsString n) => [n] -> b -> Expr
+makeLam :: (ToBody b Name, ToName n) => [n] -> b -> Expr Name
 makeLam names b = toExpr $ Lam  (toName <$> names) (toBody b)
 
-makeLamDot :: (ToBody b, ToName n, ToName n2) => [n] -> n2 -> b -> Expr
+makeLamDot :: (ToBody b Name, ToName n, ToName n2) => [n] -> n2 -> b -> Expr Name
 makeLamDot names name b = toExpr $ LamDot (toName <$> names, toName name) (toBody b)
 
-makeLamList :: (ToBody b, ToName n) => n -> b -> Expr
+makeLamList :: (ToBody b Name, ToName n) => n -> b -> Expr Name
 makeLamList name b = toExpr $ LamList (toName name) (toBody b)
 
--- prepends the newarg variable to the argument list
-extendLamList :: (ToName n, ToExpr n, ToBody b) => n -> n -> b -> Expr
+-- -- prepends the newarg variable to the argument list
+extendLamList :: (ToName n, ToExpr n Name, ToBody b Name) => n -> n -> b -> Expr Name
 extendLamList newarg oldarg body =
   makeLamList oldarg
     (makeLet (newarg, car $ toExpr oldarg)
       (makeLet (oldarg, cdr $ toExpr oldarg) (toBody body)))
 
-makeFunDecl :: (ToBody b, ToName n, ToName n2) => n -> [n2] -> b -> Decl
+makeFunDecl :: (ToBody b Name, ToName n, ToName n2) => n -> [n2] -> b -> Decl Name
 makeFunDecl n ps b = FunDecl (toName n) (toName <$> ps) $ toBody b
 
-makeFunDotDecl :: (ToBody b, ToName n, ToName n2, ToName n3) => n -> [n2] -> n3 -> b -> Decl
+makeFunDotDecl :: (ToBody b Name, ToName n, ToName n2, ToName n3) => n -> [n2] -> n3 -> b -> Decl Name
 makeFunDotDecl n ps p b = FunDotDecl (toName n) (toName <$> ps) (toName p) $ toBody b
 
-makeFunListDecl :: (ToBody b, ToName n, ToName n2) => n -> n2 -> b -> Decl
+makeFunListDecl :: (ToBody b Name, ToName n, ToName n2) => n -> n2 -> b -> Decl Name
 makeFunListDecl n p b = FunListDecl (toName n) (toName p) $ toBody b
 
-makeLet :: (ToBinding b, ToBody b2) => b -> b2 -> Expr
+makeLet :: (ToBinding b a, ToBody b2 a) => b -> b2 -> Expr a
 makeLet bindings body =
   let bindings' = toBinding bindings in
     ELet $ Let bindings' (toBody body)
 
-makeIf3 :: Expr -> Expr -> Expr -> Expr
+makeIf3 :: Expr a -> Expr a -> Expr a -> Expr a
 makeIf3 = EIf
 
-makeIf2 :: Expr -> Expr -> Expr
+makeIf2 :: Expr Name -> Expr Name -> Expr Name
 makeIf2 tst thn = EIf tst thn (toExpr makeUnspecified)
 
-makeSet :: (ToName n) => n -> Expr -> Expr
+makeSet :: (ToName n) => n -> Expr Name -> Expr Name
 makeSet n = ESet (toName n)
 
-
-makeCallCC :: Expr -> Expr
+makeCallCC :: Expr a -> Expr a
 makeCallCC = ECallCC
 
-makeLiteral :: Literal -> Expr
+makeLiteral :: Literal -> Expr Name
 makeLiteral = ELit
 
-makeString :: String -> Literal
-makeString = LitString
+makeString :: String -> Expr Name
+makeString = toExpr . LitString
 
-makeSymbol :: String -> Literal
-makeSymbol = LitSymbol
+makeSymbol :: String -> Expr Name
+makeSymbol = toExpr . LitSymbol
 
-makeInt :: Int -> Literal
-makeInt = LitInt
+makeInt :: Int -> Expr Name
+makeInt = toExpr . LitInt
 
-makeFloat :: Float -> Literal
-makeFloat = LitFloat
+makeFloat :: Float -> Expr Name
+makeFloat = toExpr . LitFloat
 
-makeChar :: Char -> Literal
-makeChar = LitChar
+makeChar :: Char -> Expr Name
+makeChar = toExpr . LitChar
 
-makeBool :: Bool -> Literal
-makeBool = LitBool
+makeBool :: Bool -> Expr Name
+makeBool = toExpr . LitBool
 
-makeList :: [Literal] -> Literal
-makeList = LitList
+makeList :: [Literal] -> Expr Name
+makeList = toExpr . LitList
 
-makeVector :: [Literal] -> Literal
-makeVector = LitVector
+makeVector :: [Literal] -> Expr Name
+makeVector = toExpr . LitVector
 
-makeNil :: Literal
-makeNil =  LitNil
+makeNil :: Expr Name
+makeNil =  toExpr LitNil
 
-makeUnspecified :: Literal
-makeUnspecified =  LitUnspecified
+makeUnspecified :: Expr Name
+makeUnspecified =  toExpr LitUnspecified
 
-makeExp :: Expr -> ScSyn
+makeExp :: Expr a -> ScSyn a
 makeExp = ScExpr
 
-makeDecl :: Decl -> ScSyn
+makeDecl :: Decl a -> ScSyn a
 makeDecl = ScDecl
 
-makeVarDecl :: (ToName n) => n -> Expr -> Decl
+makeVarDecl :: (ToName n) => n -> Expr Name -> Decl Name
 makeVarDecl t = VarDecl (toName t)
 
-makeOr :: Maybe [Expr] -> Expr
-makeOr = ESynExt . EOr
-
-makeAnd :: Maybe [Expr] -> Expr
-makeAnd = ESynExt . EAnd
-
-makeBegin :: [Expr] -> Expr
-makeBegin = ESynExt . EBegin
-
-car :: Expr -> Expr
+car :: Expr a -> Expr a
 car e = makePrimApp ("car" :: String) [e]
 
-cdr :: Expr -> Expr
+cdr :: Expr a -> Expr a
 cdr e = makePrimApp ("cdr" :: String) [e]
 
-if' :: Bool -> a -> a -> a
-if' True  x _ = x
-if' False _ y = y
+-- if' :: Bool -> a -> a -> a
+-- if' True  x _ = x
+-- if' False _ y = y
 
--------------------------------------------------------------------------------
--- Utils
--------------------------------------------------------------------------------
+-- -------------------------------------------------------------------------------
+-- -- Utils
+-- -------------------------------------------------------------------------------
 
-isDecl :: ScSyn -> Bool
+isDecl :: ScSyn a -> Bool
 isDecl (ScDecl _) = True
 isDecl _ = False
 
-isExpr :: ScSyn -> Bool
+isExpr :: ScSyn a -> Bool
 isExpr (ScExpr _) = True
 isExpr _ = False
 
-isLamApp :: Expr -> Bool
+isLamApp :: Expr a -> Bool
 isLamApp (EApp (AppLam _ _)) = True
 isLamApp _ = False
 
