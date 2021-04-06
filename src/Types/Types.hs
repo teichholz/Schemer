@@ -1,6 +1,7 @@
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE DeriveTraversable #-}
-
-
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeOperators #-}
@@ -256,29 +257,32 @@ descendLetM f e = case e of
 -------------------------------------------------------------------------------
 -- Free vars calculation
 -------------------------------------------------------------------------------
-class FreeVars e where
-  fv :: e -> S.Set Name
+class FreeVars e a | e -> a where
+  fv :: e -> S.Set a
 
-instance FreeVars a => FreeVars [a] where
+instance (FreeVars e a, Ord a) => FreeVars [e] a where
   fv = S.unions . fmap fv
 
-instance FreeVars Name where
+instance FreeVars Name Name where
   fv = S.singleton
 
-instance FreeVars a => FreeVars (ScSyn a) where
+instance FreeVars UniqName UniqName where
+  fv = S.singleton
+
+instance (FreeVars a a, Ord a) => FreeVars (ScSyn a) a where
   fv (ScDecl d) = fv d
   fv (ScExpr e) = fv e
 
-instance FreeVars a => FreeVars (Body a) where
+instance (FreeVars a a, Ord a) => FreeVars (Body a) a where
   fv (Body b) = fv b
 
-instance FreeVars a => FreeVars (Decl a) where
+instance (Ord a, FreeVars a a) => FreeVars (Decl a) a where
   fv (FunDecl _ ps b) = fv ps  S.\\ fv b
   fv (FunDotDecl _ ps p b) = fv (p:ps) S.\\ fv b
   fv (FunListDecl _ p b) = fv p S.\\ fv b
   fv (VarDecl _ e) = fv e
 
-instance FreeVars a => FreeVars (Expr a) where
+instance (FreeVars a a, Ord a) => FreeVars (Expr a) a where
   fv (EApp app) = fv app
   fv (EVar name) = fv name
   fv (ELam lam) = fv lam
@@ -289,27 +293,26 @@ instance FreeVars a => FreeVars (Expr a) where
   fv (ECallCC e) = fv e
   fv (ELit _) = S.empty
 
-instance FreeVars a => FreeVars (Apply a) where
+instance (FreeVars a a, Ord a) => FreeVars (Apply a) a where
   fv (ApplyPrim _ e) = fv e
   fv (ApplyLam e1 e2) = fv e1 `S.union` fv e2
 
-instance FreeVars a => FreeVars (Application a) where
+instance (FreeVars a a, Ord a) => FreeVars (Application a) a where
   fv (AppPrim _ es) = fv es
   fv (AppLam e es) = fv (e:es)
 
-instance FreeVars a => FreeVars (Lambda a) where
+instance (Ord a, FreeVars a a) => FreeVars (Lambda a) a where
   fv (Lam ps b) = fv ps  S.\\ fv b
   fv (LamDot (ps, p) b) = fv (p:ps) S.\\ fv b
   fv (LamList p b) = fv p S.\\ fv b
 
-instance FreeVars a => FreeVars (Let a) where
+instance (Ord a, FreeVars a a) => FreeVars (Let a) a where
   fv (Let bind body) = fv (fst <$> bind) S.\\ fv body
 
 -------------------------------------------------------------------------------
 -- Alphatization
 -------------------------------------------------------------------------------
 
--- fst = unique name, snd = scheme name
 data UniqName = UName Name Int
   deriving (Show, Eq, Ord)
 type NameMap = M.Map Name UniqName
@@ -317,6 +320,9 @@ type Counter = Int
 
 makeUniqName :: Name -> Int -> UniqName
 makeUniqName = UName
+
+unUniqName :: UniqName -> Name
+unUniqName (UName n _) = n
 
 addUniqName :: Name -> UniqName -> NameMap -> NameMap
 addUniqName = M.insert

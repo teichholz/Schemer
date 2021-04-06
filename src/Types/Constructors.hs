@@ -330,8 +330,15 @@ isLamApp _ = False
 makeName' :: String -> Int -> Name
 makeName' s i = toName $ s <> show i
 
-makeUniqueName :: (FreeVars e) => String -> e -> Name
+makeUniqueName :: (FreeVars e Name) => String -> e -> Name
 makeUniqueName n e =
   let frees =  fv e in
     toName $ head $ filter (\n -> not $ S.member n frees)
                            (fmap (makeName' n) [0..])
+
+makeGloballyUniqueName :: (Functor e, FreeVars (e Name) Name, FreeVars (e UniqName) UniqName) => UniqName -> e UniqName -> UniqName
+makeGloballyUniqueName (UName n _) e =
+  let frees =  fv e
+      n' = makeUniqueName (T.unpack n) (unAlpha e) in
+     head $ filter (\n -> not $ S.member n frees)
+                   (fmap (makeUniqName n') [0..])
