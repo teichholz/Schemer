@@ -74,10 +74,10 @@ instance Pretty Literal where
       getChar '\n' = "#\\" <> "newline"
       getChar c = snoc "#\\" c
   pretty (LitString str) = inQuotes $ unsafeViaShow str
-  pretty (LitSymbol sym) = unsafeViaShow sym
-  pretty (LitList list) = mkList $ pretty <$> list
-  pretty LitNil = inParens emptyDoc
-  pretty (LitVector vec) = "#" <> pretty (LitList vec)
+  pretty (LitSymbol sym) = pretty sym
+  pretty (LitList list) = quoted $ mkList $ pretty <$> list
+  pretty LitNil = quoted $ inParens emptyDoc
+  pretty (LitVector vec) = quoted $ "#" <> pretty (LitList vec)
   pretty LitUnspecified  = "unspecified"
 
 instance Pretty a => Pretty (Body a) where

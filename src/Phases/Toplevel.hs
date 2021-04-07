@@ -27,6 +27,7 @@ transform = do
       top'' =  go topLet
 
   logDebug $ "Created AST from toplevel:\n" <> display top''
+  logDebug $ "Created raw AST from toplevel:\n" <> display (show top'')
 
   ast <- asks _ast
   writeSomeRef ast top''

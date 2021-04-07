@@ -66,6 +66,8 @@ parseExpr = \case
 
   List(Atom "lambda":tl) -> parseLambda tl
 
+  List[Atom "quote", sxp] -> ELit <$> parseQuote sxp
+
   List[Atom "call\\cc", fn] -> case fn of
     Atom x | isIdent x -> parseIdent x
     List(Atom "lambda":lam) -> parseLambda lam
@@ -78,24 +80,26 @@ parseExpr = \case
     _ -> throwM $ ParseException "Wrong application"
 
   Atom x -> parseAtom (Atom x)
+  List[] -> return makeNil
+
 
   _ -> throwM $ ParseException "Wrong expression"
 
 parseAtom :: Sexp -> IO (Expr Name)
 parseAtom = \case
   Atom x | isIdent x -> parseIdent x
-  x -> parseLit x
+  x -> ELit <$> parseLit x
 
 parseIdent :: Text -> IO (Expr Name)
 parseIdent x = return $ makeVar (parseLiteral varLiteral x)
 
-parseLit :: Sexp -> IO (Expr Name)
+parseLit :: Sexp -> IO Literal
 parseLit = \case
-  Atom x | isString x -> return $ makeString (parseLiteral stringLiteral x)
-  Atom x | isChar x -> return $ makeChar (parseLiteral charLiteral x)
-  Atom x | isInt x -> return $ makeInt (parseLiteral intLiteral x)
-  Atom x | isFloat x -> return $ makeFloat (parseLiteral floatLiteral x)
-  Atom x | isBool x -> return $ makeBool (parseLiteral boolLiteral x)
+  Atom x | isString x -> return $ LitString (parseLiteral stringLiteral x)
+  Atom x | isChar x -> return $ LitChar (parseLiteral charLiteral x)
+  Atom x | isInt x -> return $ LitInt (parseLiteral intLiteral x)
+  Atom x | isFloat x -> return $ LitFloat (parseLiteral floatLiteral x)
+  Atom x | isBool x -> return $ LitBool (parseLiteral boolLiteral x)
   _ -> throwM $ ParseException "Wrong literal"
 
 
@@ -135,6 +139,31 @@ parseArgs args = evalStateT (go args) []
         go tl
       [] -> Normal . reverse <$> get
       _ -> throwM $ ParseException "Wrong args"
+
+parseQuote :: Sexp -> IO Literal
+parseQuote sxp = case sxp of
+  List(Atom "vec":tl) -> LitVector <$> parseList tl
+  List es -> LitList <$> parseList es
+  Atom _ -> case sxp of
+    Atom x | isIdent x -> return $ LitSymbol (parseLiteral varLiteral x)
+    Atom _ ->  parseLit sxp
+  where
+    parseList :: [Sexp] -> IO [Literal]
+    parseList sxps = case sxps of
+      [tl] -> do
+        tl <- parseQuote tl
+        return [tl, LitNil]
+
+      [Atom ".", tl] -> do
+        tl <- parseQuote tl
+        return [tl]
+
+      hd:tl -> do
+        hd <- parseQuote hd
+        tl <- parseList tl
+        return $ hd:tl
+
+
 
 
 -- parseCond :: [Sexp] -> IO Expr

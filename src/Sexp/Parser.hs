@@ -51,7 +51,10 @@ sexp :: Parser Sexp
 sexp = list sexp <|> atom
 
 quoted :: Parser Sexp -> Parser Sexp
-quoted p = fmap (\sxp -> List[Atom "quote", sxp]) (char '\'' *> p) <|> p
+quoted p = fmap (\sxp -> List[Atom "quote", sxp]) (char '\'' *> p)
+
+quoted' :: Parser Sexp -> Parser Sexp
+quoted' p = quoted p <|> p
 
 vec :: Parser Sexp
 vec = fmap (\(List l) -> List $ Atom"vec":l) (char '#' *> list sexp)
@@ -68,7 +71,7 @@ rpar :: Parser Text
 rpar = symbol ")"
 
 sexp' :: Parser Sexp
-sexp' = sc *> (nil <|> M.try (quoted vec) <|> M.try (quoted sexp)) <* sc
+sexp' = sc *> (nil <|> M.try (quoted vec) <|> M.try (quoted' sexp)) <* sc
 
 sexps :: Parser [Sexp]
 sexps = sepBy sexp' sc <* eof
