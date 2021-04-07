@@ -30,12 +30,11 @@ transform = do
   astref <- asks _ast
   ast <- readSomeRef astref
 
-  -- logDebug $ display $ unAlpha $ runAlpha ast
   let (ast', frees) = go ast
-  logDebug $ "Free variables in AST:\n" <> display (show $ S.map (\(UName n _) -> n) frees)
+  logDebug $ "Free variables in AST:\n" <> display (show $ S.map unUniqName frees)
   logDebug $ "AST after assignment transformation:\n" <> display ast'
 
-  -- writeSomeRef astref ast'
+  writeSomeRef astref ast'
   return ()
 
 -- All mutated Variables

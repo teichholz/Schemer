@@ -34,11 +34,11 @@ tAe :: Expr Name -> Expr Name
 tAe e = case e of
   ELam (Lam pat body) -> do
     let cont = makeUniqueName "cont" e
-    makeLam (cont:pat) body
+    makeLam (cont:pat) (t (toExpr body) (toExpr cont))
 
   ELam (LamList pat body) -> do
     let cont = makeUniqueName "cont" e
-    extendLamList cont pat body -- Extends the list parameter with cont
+    extendLamList cont pat (t (toExpr body) (toExpr cont)) -- Extends the list parameter with cont
 
   x -> x
 

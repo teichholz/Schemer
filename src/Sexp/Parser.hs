@@ -35,9 +35,6 @@ symbol = L.symbol sc
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
 
-whites :: Parser ()
-whites = sc
-
 atom :: Parser Sexp
 atom = Atom <$> lexeme rawAtom
 
@@ -47,8 +44,20 @@ rawAtom = takeWhile1P (Just "S-expression atom character") isAtom
 isAtom :: Char -> Bool
 isAtom = (`notElem` ['\n', '\t', '(', ')', ' '])
 
+list :: Parser Sexp -> Parser Sexp
+list ps = List <$> parens (M.some ps)
+
 sexp :: Parser Sexp
-sexp = sc *> ((List <$> parens (M.some sexp)) <|> atom) <* sc
+sexp = list sexp <|> atom
+
+quoted :: Parser Sexp -> Parser Sexp
+quoted p = fmap (\sxp -> List[Atom "quote", sxp]) (char '\'' *> p) <|> p
+
+vec :: Parser Sexp
+vec = fmap (\(List l) -> List $ Atom"vec":l) (char '#' *> list sexp)
+
+nil :: Parser Sexp
+nil = fmap (const $ List[]) (string "'()")
 
 parens :: Parser a -> Parser a
 parens = between lpar rpar
@@ -58,11 +67,20 @@ lpar = symbol "("
 rpar :: Parser Text
 rpar = symbol ")"
 
+sexp' :: Parser Sexp
+sexp' = sc *> (nil <|> M.try (quoted vec) <|> M.try (quoted sexp)) <* sc
+
 sexps :: Parser [Sexp]
-sexps = sepBy sexp sc <* eof
+sexps = sepBy sexp' sc <* eof
 
 runParser :: FilePath -> Text -> Either (ParseErrorBundle Text Void) [Sexp]
 runParser = M.parse sexps
+
+
+
+-------------------------------------------------------------------------------
+-- Tests
+-------------------------------------------------------------------------------
 
 txt :: Text
 txt = [r|
@@ -71,4 +89,13 @@ txt = [r|
 
 |]
 
-test = parseTest sexps txt
+nilT :: Text
+nilT = [r|'()|]
+
+vecT :: Text
+vecT = [r|'#(1 2 3 4)|]
+
+symT :: Text
+symT = [r|'hey|]
+
+test = parseTest sexps

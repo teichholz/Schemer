@@ -18,6 +18,7 @@ import qualified RIO.Map.Partial as MP
 import qualified RIO.Set as S
 import qualified Data.Text as T
 import Data.Data (cast)
+import Data.Foldable
 
 
 -- Main datatype as a: ReaderT Env IO a
@@ -310,11 +311,26 @@ instance (Ord a, FreeVars a a) => FreeVars (Let a) a where
   fv (Let bind body) = fv (fst <$> bind) S.\\ fv body
 
 -------------------------------------------------------------------------------
+-- All vars calculation
+-------------------------------------------------------------------------------
+
+-- The AST is parameterized over it's type of variables. This means Foldable can be used to get all of them.
+av :: (Foldable e, Ord a) => e a -> S.Set a
+av = foldl go S.empty
+  where
+    go :: (Ord a) => S.Set a -> a -> S.Set a
+    go sa a = S.union sa (S.singleton a)
+
+-------------------------------------------------------------------------------
 -- Alphatization
 -------------------------------------------------------------------------------
 
 data UniqName = UName Name Int
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq)
+
+instance Ord UniqName where
+  (UName _ i) <= (UName _ i') = i <= i'
+
 type NameMap = M.Map Name UniqName
 type Counter = Int
 
@@ -323,6 +339,9 @@ makeUniqName = UName
 
 unUniqName :: UniqName -> Name
 unUniqName (UName n _) = n
+
+indexOfUniqName :: UniqName -> Int
+indexOfUniqName (UName _ i) = i
 
 addUniqName :: Name -> UniqName -> NameMap -> NameMap
 addUniqName = M.insert
@@ -340,7 +359,6 @@ callWithAlphaM :: (Alphatization e, Functor e, Monad m) => (e UniqName -> m (e U
 callWithAlphaM f = fmap unAlpha . f . runAlpha
 
 
--- TODO Is there some way to use travereable for this?
 class Alphatization e where
   alpha :: e Name -> State (Counter, NameMap) (e UniqName)
 

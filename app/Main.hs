@@ -20,7 +20,7 @@ import Prelude (print)
 
 
 phases :: [ScEnv ()]
-phases = [Top.transform, Sim.transform, ANF.transform, Ass.transform]
+phases = [Top.transform, Sim.transform, ANF.transform, CPS.transform, Ass.transform]
 
 compileAction :: ScEnv ()
 compileAction = foldl1 (>>) phases

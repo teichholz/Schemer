@@ -14,12 +14,13 @@ import RIO
 import RIO.Text (unpack, pack)
 import Types.Types
 import qualified Utils.NameResolver as NR
-import Data.Foldable (foldr1)
 import RIO.List.Partial (head)
 import RIO.Lens as L
 import qualified RIO.Set as S
 import qualified RIO.Text
 import qualified Data.Text as T
+import Data.Foldable (maximum)
+import GHC.Enum (succ)
 
 
 
@@ -302,7 +303,7 @@ cdr :: Expr a -> Expr a
 cdr e = makePrimApp ("cdr" :: PrimName) [e]
 
 makeConsList :: [Expr a] -> Expr a
-makeConsList = foldr1 cons
+makeConsList = foldr cons (ELit LitNil)
 
 makeVectorFromList :: [Expr a] -> Expr a
 makeVectorFromList es = makePrimApp ("list2vector" :: PrimName) [makeConsList es]
@@ -336,9 +337,11 @@ makeUniqueName n e =
     toName $ head $ filter (\n -> not $ S.member n frees)
                            (fmap (makeName' n) [0..])
 
-makeGloballyUniqueName :: (Functor e, FreeVars (e Name) Name, FreeVars (e UniqName) UniqName) => UniqName -> e UniqName -> UniqName
+makeGloballyUniqueName :: (Foldable e, Functor e, FreeVars (e Name) Name, FreeVars (e UniqName) UniqName) => UniqName -> e UniqName -> UniqName
 makeGloballyUniqueName (UName n _) e =
   let frees =  fv e
-      n' = makeUniqueName (T.unpack n) (unAlpha e) in
+      n' = makeUniqueName (T.unpack n) (unAlpha e)
+      low = succ $ indexOfUniqName (maximum e)
+  in
      head $ filter (\n -> not $ S.member n frees)
-                   (fmap (makeUniqName n') [0..])
+                   (fmap (makeUniqName n') [low..])
