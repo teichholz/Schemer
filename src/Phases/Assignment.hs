@@ -22,6 +22,7 @@ import Types.Types
 import Types.Constructors
 import Types.Pprint
 import Prelude (print)
+import Phases.Simplify (flattenLet)
 
 
 transform :: ScEnv ()
@@ -52,16 +53,16 @@ makeBox :: Expr UniqName -> Expr UniqName
 makeBox e = makePrimApp ("make-vector" :: PrimName) [ELit $ LitInt 1, e]
 
 -- Wraps the Expr in a Binding in a Box
-makeBoxBinding :: Binding UniqName -> Binding UniqName
-makeBoxBinding [(n, e)] = [(n, makeBox e)]
+makeBoxBinding :: (UniqName, Expr UniqName) -> Binding UniqName
+makeBoxBinding (n, e) = [(n, makeBox e)]
 
 -- Sets the value of a Box
-makeBoxSet :: UniqName -> Expr UniqName -> Int -> Expr UniqName
-makeBoxSet name e i = makePrimApp ("vector-set!" :: PrimName) [EVar name, ELit $ LitInt i, e]
+makeBoxSet :: Expr UniqName ->  Expr UniqName
+makeBoxSet (ESet n e) = makePrimApp ("vector-set!" :: PrimName) [toExpr n, ELit $ LitInt 0, e]
 
 -- Gets the value of a Box
-makeBoxGet :: UniqName -> Int -> Expr UniqName
-makeBoxGet name i = makePrimApp ("vector-ref" :: PrimName) [EVar name, ELit $ LitInt i]
+makeBoxGet :: Expr UniqName -> Expr UniqName
+makeBoxGet (EVar n) = makePrimApp ("vector-ref" :: PrimName) [toExpr n, ELit $ LitInt 0]
 
 isMutated' :: Mutated -> UniqName -> Bool
 isMutated' m n = S.member n m
@@ -69,34 +70,6 @@ isMutated' m n = S.member n m
 add :: UniqName -> Mutated -> Mutated
 add = S.union . S.singleton
 
--- Calls makeBox* on Vars, respecting their index in the Vector
-callBox :: [(UniqName, Int)]
-  -> UniqName
-  -> Body UniqName
-  -> Body UniqName
-callBox al newname b =
-  runIdentity $ runReaderT (descendBodyM (makeMap f) b) (M.fromList al)
-  where
-    f :: Expr UniqName -> ReaderT (M.Map UniqName Int) Identity  (Expr UniqName)
-    f e = do
-      map <- ask
-      case e of
-        EVar n -> do
-          let pair = M.lookup n map
-          if isJust pair then do
-            let (Just i) = pair
-            return $ makeBoxGet newname i
-          else do
-            return e
-        ESet n rhs -> do
-          let pair = M.lookup n map
-          if isJust pair then do
-            let (Just i) = pair
-            return $ makeBoxSet newname rhs i
-          else do
-            return e
-
-        x -> return x
 
 removeSet :: Expr UniqName -> SM (Expr UniqName)
 removeSet e = do
@@ -106,22 +79,29 @@ removeSet e = do
   case e of
     ESet n _ -> do
       modify (add n)
-      return e
+      return $ makeBoxSet e
 
-    ELet (Let pat@[(n, _)] b) | isMutated n -> do
-      let b' = callBox [(n, 0)] n b
-      return $ ELet $ Let (makeBoxBinding pat) b'
+    ELet (Let [pat@(n, _)] b) | isMutated n -> do
+      return $ ELet $ Let (makeBoxBinding pat) b
 
-    EApp (AppLam e es) -> return $ makeLamApp e [makeVectorFromList es]
+    -- EApp (AppLam e es) -> return $ makeLamApp e [makeConsList es]
 
-    ELam (Lam ns@(n:_) b) -> do
-      let ns' = makeGloballyUniqueName n b
-      let b' = callBox (zip ns [0..]) ns' b
-      return $ ELam $ Lam [ns'] b'
+    ELam (Lam ns b) -> do
+      let f  = \n -> do
+            (ns', bs) <- get
+            if isMutated n then do
+              let n' = makeGloballyUniqueName n b
+              put (ns' ++ [n'], bs ++ makeBoxBinding (n, toExpr n'))
+            else
+              put (ns' ++ [n], bs)
 
-    ELam (LamList n b) -> do
+      let (ns', bs) = runIdentity $ execStateT (mapM f ns) ([], [])
+          b' = if ns == ns' then b else toBody (flattenLet $ ELet $ Let bs b)
+
+      return $ ELam $ Lam ns' b'
+
+    ELam (LamList n b) | isMutated n -> do
       let n' = makeGloballyUniqueName n b
-      let b' = callBox [(n, 0)] n' b
-      return $ ELam $ LamList n' b'
+      return $ ELam $ LamList n' (toBody $ ELet $ Let (makeBoxBinding (n, toExpr n')) b)
 
     x -> return x

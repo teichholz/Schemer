@@ -108,11 +108,20 @@ data Application a
 newtype PrimName = PName {unPName :: (String, String)}
   deriving (Show, Generic)
 
+instance Eq PrimName where
+  PName (_, n) == PName (_, n') = n == n'
+
+instance Semigroup PrimName where
+  -- The RT name ca be changed from both left and right, maintaining the Scheme name
+  PName ("", n) <> PName (sn, n') = PName (sn, n <> n')
+  PName (sn, n) <> PName ("", n') = PName (sn, n <> n')
+
 -- These represent methods needed by the runtime itself.
 -- These don't have an actual Scheme counterpart which is used for pretty printing.
 -- Example: halt (RT), no Scheme counterpart
 newtype PrimName' = PName' {unPName' :: String}
   deriving (Show, Generic)
+
 
 data Lambda a
   = Lam [a] (Body a)

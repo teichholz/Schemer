@@ -1,11 +1,12 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 -- |
 
-module Utils.NameResolver (getCname, isPrim) where
+module Utils.NameResolver (getCname, isPrim, isOverloaded, isVariadic) where
 
 import RIO
-import Types.Types (Name)
+import Types.Types (Name, PrimName(..))
 import RIO.Text
 import Data.List as L
 import Data.Maybe as M
@@ -33,6 +34,12 @@ prims = [
   ("display", "display", 1)
   ]
 
+varargs = ["+" , "-", "*", "/", "=", ">", ">=", "<", "<="]
+
+overloaded = ["+", "*", "make-string", "make-vector"]
+
+
+
 class IsVarName a where
   getName :: a -> Text
 
@@ -44,6 +51,12 @@ instance IsVarName Text where
 
 isPrim :: (IsVarName a) => a -> Bool
 isPrim a = L.any ((getName a ==) . (\(n, _, _) -> getName n)) prims
+
+isOverloaded :: PrimName -> Bool
+isOverloaded (PName (sn, _)) = sn `elem` overloaded
+
+isVariadic :: PrimName -> Bool
+isVariadic (PName (sn, _)) = sn `elem` varargs
 
 getCname :: String -> String
 getCname str = head $ do

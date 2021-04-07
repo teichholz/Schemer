@@ -21,7 +21,7 @@
 --   (let ((y 2)))
 --     (+ x y))
 
--- 3. We sequence the body of a let
+-- 3. We sequence all bodies
 -- (let ((_ _))
 --   (io)
 --   (io))
@@ -56,27 +56,29 @@ transform = do
   writeSomeRef astref ast'
   return ()
 
-run =  runDescendM runIdentity
+run =  descend
 
 type EN = Expr Name
 type SN = ScSyn Name
 type IE = Identity (Expr Name)
 
 go :: SN -> SN
-go = run sequenceLet . run flattenLet . run lambdad2lambdal
+go = run sequenceBody . run flattenLet . run lambdad2lambdal
 
-lambdad2lambdal :: EN -> IE
+
+
+lambdad2lambdal :: EN -> EN
 lambdad2lambdal = \case
   ELam lam -> go lam
-  x -> return x
+  x -> x
   where
-    go :: Lambda Name -> IE
+    go :: Lambda Name -> EN
     go = \case
       LamDot (args, dotarg) body -> do
         let lamlarg = makeUniqueName (show dotarg <> "'") dotarg
         let binding = toBinding $ evalState (go' (toExpr lamlarg) (args, dotarg)) (id, [])
-        return $ makeLamList lamlarg (makeLet binding body)
-      x -> return $ toExpr x
+        makeLamList lamlarg (makeLet binding body)
+      x -> toExpr x
 
     go' :: EN -> ([Name], Name) -> State (EN -> EN, [(Name, EN)]) [(Name, EN)]
     go' lamlarg (ns, dotn) = do
@@ -89,31 +91,35 @@ lambdad2lambdal = \case
             modify (bimap (cdr .) ((n, car $ app lamlarg):))
             go' lamlarg (ns, dotn)
 
-flattenLet :: EN -> IE
+flattenLet :: Expr a  -> Expr a
 flattenLet = \case
-  ELet (Let p t) -> return $ go p t
-  x -> return x
+  ELet (Let p t) -> go p t
+  x -> x
   where
-    go :: Binding Name -> Body Name -> EN
+    go :: Binding a -> Body a -> Expr a
     go bind body = case bind of
-      [b] -> makeLet (toBinding b) body
-      b:tl -> makeLet (toBinding b) (toBody $ go tl body)
+      [b] -> makeLet b body
+      b:tl -> makeLet b (toBody $ go tl body)
 
 
-sequenceLet :: Expr Name -> IE
-sequenceLet = \case
-  lt@(ELet (Let binding body)) -> do
-    let ss@(_:bs) = unBody body
-    if null bs then -- Body has one expression
-      return lt
-    else -- Body has >1 expressions
-      makeLet binding <$> go ss
-  x -> return x
+sequenceBody :: Expr Name -> Expr Name
+sequenceBody = \case
+  ELet (Let binding body) -> makeLet binding (seq body)
+  ELam (Lam ns b) -> makeLam ns (seq b)
+  ELam (LamList n b) -> makeLamList n (seq b)
+  x -> x
   where
-    go :: [SN] -> IE
+    go :: [SN] -> EN
     go [s, send] = do
-      let uniqName = makeUniqueName "seqbody" send
-      return $ makeLet (uniqName, toExpr s) send
+      let uniqName = makeUniqueName "seqbody" send in
+        makeLet (uniqName, toExpr s) send
     go (s:ss) = do
-      let uniqName = makeUniqueName "seqbody" ss
-      makeLet (uniqName, toExpr s) <$> go ss
+      let uniqName = makeUniqueName "seqbody" ss in
+        makeLet (uniqName, toExpr s) $ go ss
+    seq :: Body Name -> Body Name
+    seq b =
+      let ss@(_:bs) = unBody b in
+        if null bs then -- Body has one expression
+          b
+        else -- Body has >1 expressions
+          toBody $ go ss

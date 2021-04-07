@@ -14,6 +14,7 @@ import RIO
 import RIO.Text (unpack, pack)
 import Types.Types
 import qualified Utils.NameResolver as NR
+import Data.List ((!!), iterate)
 import RIO.List.Partial (head)
 import RIO.Lens as L
 import qualified RIO.Set as S
@@ -109,6 +110,9 @@ instance ToExpr Literal Name where
 instance ToExpr Name Name where
   toExpr = EVar
 
+instance ToExpr UniqName UniqName where
+  toExpr = EVar
+
 instance ToExpr String Name where
   toExpr = EVar . toName
 
@@ -139,8 +143,11 @@ instance ToBody [ScSyn a] a where
   toBody = Body
 
 -- -- ToBinding
-instance (ToName n, ToExpr e Name) => ToBinding (n, e) Name where
-  toBinding (n, e) = [(toName n, toExpr e)]
+instance (ToExpr e a) => ToBinding (a, e) a where
+  toBinding (n, e) = [(n, toExpr e)]
+
+-- instance (ToExpr e UniqName) => ToBinding (n, e) UniqName where
+--   toBinding (n, e) = [(n, toExpr e)]
 
 instance (ToName n, ToExpr e Name) => ToBinding [(n, e)] Name where
   toBinding = fmap (bimap toName toExpr)
@@ -171,14 +178,14 @@ instance IsString PrimName where
   fromString = toPrimName
 
 instance IsString PrimName' where
-  fromString = PName'
+  fromString s = PName' s
 
 -- -- ToPrimName
 instance ToPrimName PrimName where
   toPrimName = id
 
 instance ToPrimName PrimName' where
-  toPrimName (PName' n) = PName (n,n)
+  toPrimName (PName' n) = PName (n, n)
 
 instance ToPrimName String where
   toPrimName s = PName (s, NR.getCname s)
@@ -222,8 +229,8 @@ makeLamList name b = toExpr $ LamList (toName name) (toBody b)
 extendLamList :: (ToName n, ToExpr n Name, ToBody b Name) => n -> n -> b -> Expr Name
 extendLamList newarg oldarg body =
   makeLamList oldarg
-    (makeLet (newarg, car $ toExpr oldarg)
-      (makeLet (oldarg, cdr $ toExpr oldarg) (toBody body)))
+    (makeLet (toName newarg, car $ toExpr oldarg)
+      (makeLet (toName oldarg, cdr $ toExpr oldarg) (toBody body)))
 
 makeFunDecl :: (ToBody b Name, ToName n, ToName n2) => n -> [n2] -> b -> Decl Name
 makeFunDecl n ps b = FunDecl (toName n) (toName <$> ps) $ toBody b
@@ -302,6 +309,9 @@ car e = makePrimApp ("car" :: PrimName) [e]
 cdr :: Expr a -> Expr a
 cdr e = makePrimApp ("cdr" :: PrimName) [e]
 
+cadr :: Int -> Expr a -> Expr a
+cadr cnt e = car $ fix (\rec n -> if n < 1 then e else cdr (rec (n - 1))) cnt
+
 makeConsList :: [Expr a] -> Expr a
 makeConsList = foldr cons (ELit LitNil)
 
@@ -337,8 +347,8 @@ makeUniqueName n e =
     toName $ head $ filter (\n -> not $ S.member n frees)
                            (fmap (makeName' n) [0..])
 
-makeGloballyUniqueName :: (Foldable e, Functor e, FreeVars (e Name) Name, FreeVars (e UniqName) UniqName) => UniqName -> e UniqName -> UniqName
-makeGloballyUniqueName (UName n _) e =
+makeGloballyUniqueName :: (Foldable e, Functor e, FreeVars (e Name) Name, FreeVars (e UniqName) UniqName) => Name -> e UniqName -> UniqName
+makeGloballyUniqueName n e =
   let frees =  fv e
       n' = makeUniqueName (T.unpack n) (unAlpha e)
       low = succ $ indexOfUniqName (maximum e)
