@@ -313,7 +313,7 @@ instance (FreeVars a a, Ord a) => FreeVars (Apply a) a where
 
 instance (FreeVars a a, Ord a) => FreeVars (Application a) a where
   fv (AppPrim _ es) = fv es
-  fv (AppLam e es) = fv (e:es)
+  fv (AppLam e es) = fv e `S.union` fv es
 
 instance (Ord a, FreeVars a a) => FreeVars (Lambda a) a where
   fv (Lam ps b) = fv ps  S.\\ fv b
@@ -321,7 +321,7 @@ instance (Ord a, FreeVars a a) => FreeVars (Lambda a) a where
   fv (LamList p b) = fv p S.\\ fv b
 
 instance (Ord a, FreeVars a a) => FreeVars (Let a) a where
-  fv (Let bind body) = fv (fst <$> bind) S.\\ fv body
+  fv (Let bind body) = fv (fst <$> bind) S.\\ fv body `S.union` fv (snd <$> bind)
 
 -------------------------------------------------------------------------------
 -- All vars calculation
