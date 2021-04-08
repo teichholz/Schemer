@@ -7,6 +7,7 @@ module Types.Pprint (pretty, display) where
 
 import RIO
 import Types.Types
+import Types.Constructors
 import RIO.Text as T
 import Data.Text.Prettyprint.Doc
 
@@ -100,6 +101,22 @@ instance Pretty a => Pretty (Lambda a) where
   pretty (LamList p body) = inParens ("lambda" <+> pretty p <> pretty body)
 
 instance Pretty a => Pretty (Application a) where
+  pretty (AppPrim "car" [EApp (AppPrim "cdr" [EApp (AppPrim "cdr" [EApp (AppPrim "cdr" [EApp (AppPrim "cdr" [e])])])])]) =
+    inParens (pretty ("caddddr" :: String) <+> doIndent (pretty e))
+  pretty (AppPrim "car" [EApp (AppPrim "cdr" [EApp (AppPrim "cdr" [EApp (AppPrim "cdr" [e])])])]) =
+    inParens (pretty ("cadddr" :: String) <+> doIndent (pretty e))
+  pretty (AppPrim "car" [EApp (AppPrim "cdr" [EApp (AppPrim "cdr" [e])])]) =
+    inParens (pretty ("caddr" :: String) <+> doIndent (pretty e))
+  pretty (AppPrim "car" [EApp (AppPrim "cdr" [e])]) =
+    inParens (pretty ("cadr" :: String) <+> doIndent (pretty e))
+  pretty (AppPrim "cons" [car, EApp (AppPrim "cons" [cadr, EApp (AppPrim "cons" [caddr, EApp (AppPrim "cons" [cadddr, nil])])])]) =
+    inParens $ pretty ("cons'" :: String) <> doIndent (vertDocs $ pretty <$> [car, cadr, caddr, caddr])
+  pretty (AppPrim "cons" [car, EApp (AppPrim "cons" [cadr, EApp (AppPrim "cons" [caddr, nil])])]) =
+    inParens $ pretty ("cons'" :: String) <> doIndent (vertDocs $ pretty <$> [car, cadr, caddr])
+  pretty (AppPrim "cons" [car, EApp (AppPrim "cons" [cadr, nil])]) =
+    inParens $ pretty ("cons'" :: String) <> doIndent (vertDocs $ pretty <$> [car, cadr])
+  pretty (AppPrim "cons" [car, nil]) =
+    inParens $ pretty ("cons'" :: String) <> doIndent (vertDocs $ pretty <$> [car])
   pretty (AppPrim n es) =
     inParens (pretty n <> doIndent (vertDocs $ pretty <$> es))
   pretty (AppLam e es) =
