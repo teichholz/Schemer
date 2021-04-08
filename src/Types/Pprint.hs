@@ -84,7 +84,7 @@ instance Pretty a => Pretty (Body a) where
   pretty b =  doIndent $ align (vsep $ pretty <$> unBody b)
 
 instance Pretty PrimName where
-  pretty (PName (schemeName, _)) = pretty schemeName
+  pretty (PName (schemeName, rtName)) = pretty (schemeName, rtName)
 
 instance Pretty UniqName where
   pretty (UName n i) = pretty n <> "@" <> pretty i
@@ -105,6 +105,12 @@ instance Pretty a => Pretty (Application a) where
   pretty (AppLam e es) =
     inParens (pretty e <> doIndent (vertDocs $ pretty <$> es))
 
+instance Pretty a => Pretty (Apply a) where
+  pretty (ApplyPrim n e) =
+    inParens (pretty n <> doIndent (vertDocs [pretty e]))
+  pretty (ApplyLam e e') =
+    inParens (pretty e <> doIndent (vertDocs [pretty e']))
+
 instance Pretty a => Pretty (ScSyn a) where
   pretty (ScDecl d) = pretty d
   pretty (ScExpr e) = pretty e
@@ -119,6 +125,7 @@ instance Pretty a => Pretty (Expr a) where
   pretty (ESet n e) =
     inParens ("set!" <> doIndent (pretty n) <> doIndent (pretty e))
   pretty (ELit lit) = pretty lit
+  pretty (EApply app) = pretty app
 
 
 instance Pretty a => Pretty (Decl a) where

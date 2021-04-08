@@ -318,6 +318,15 @@ makeConsList = foldr cons (ELit LitNil)
 makeVectorFromList :: [Expr a] -> Expr a
 makeVectorFromList es = makePrimApp ("list2vector" :: PrimName) [makeConsList es]
 
+vectorRef :: Expr a -> Int -> Expr a
+vectorRef e i = makePrimApp ("vector-ref" :: PrimName) [e, ELit $ LitInt i]
+
+vectorSet :: Expr a -> Int -> Expr a -> Expr a
+vectorSet lhs i rhs   = makePrimApp ("vector-set!" :: PrimName) [lhs, ELit $ LitInt i, rhs]
+
+
+
+
 -- if' :: Bool -> a -> a -> a
 -- if' True  x _ = x
 -- if' False _ y = y

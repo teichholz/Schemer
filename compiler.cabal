@@ -36,6 +36,7 @@ library
       Phases.Simplify
       Phases.Test
       Phases.Toplevel
+      Phases.Unify
       Sexp.Literals
       Sexp.Parser
       Types.Constructors

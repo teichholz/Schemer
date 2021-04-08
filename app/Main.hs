@@ -15,12 +15,13 @@ import qualified Phases.Simplify as Sim
 import qualified Phases.ANF as ANF
 import qualified Phases.CPS as CPS
 import qualified Phases.Assignment as Ass
+import qualified Phases.Unify as Uni
 
 import Prelude (print)
 
 
 phases :: [ScEnv ()]
-phases = [Top.transform, Sim.transform, ANF.transform, CPS.transform, Ass.transform]
+phases = [Top.transform, Sim.transform, ANF.transform, CPS.transform, Ass.transform, Uni.transform]
 
 compileAction :: ScEnv ()
 compileAction = foldl1 (>>) phases
@@ -57,11 +58,13 @@ runApp sf top opts action = do
   let logOptions = setLogUseTime False $ setLogUseLoc False logOptions'
   withLogFunc logOptions $ \logFunc -> do
     astRef <- newSomeRef dummy
+    procsRef <- newSomeRef []
     let state =
           Env {
             _file = sf
             , _ast = astRef
             , _toplevel = top
+            , _procs = procsRef
             , _options = opts
             , _name = "Schemer"
             , _logF = logFunc }

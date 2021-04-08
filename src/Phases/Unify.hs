@@ -48,13 +48,13 @@ import Prelude (print)
 
 transform :: ScEnv ()
 transform = do
-  logInfo "Performing assignment transformation"
+  logInfo "Performing unification of procedures"
   astref <- asks _ast
   ast <- readSomeRef astref
 
   let ast' = go ast
 
-  logDebug $ "AST after assignment transformation:\n" <> display ast'
+  logDebug $ "AST after unifiction:\n" <> display ast'
 
   writeSomeRef astref ast'
   return ()
@@ -72,17 +72,17 @@ overload e = case e of
     overload' pn args =
       let len = L.length args
        in if
-              | L.elem pn ["+", "*"] -> pn <> PName ("", show $ max 1 len)
+              | L.elem pn ["+", "*"] -> pn <> PName ("", show len)
               | L.elem pn ["make-string", "make-vector"] -> pn <> PName ("", show len)
               | otherwise -> pn
 
 
 unify :: Expr UniqName -> Expr UniqName
 unify e = case e of
-  EApp (AppPrim pn es) | NR.isVariadic pn -> EApply $ ApplyPrim (PName ("", "apply") <> pn) (makeConsList es)
+  EApp (AppPrim pn es) | NR.isVariadic pn -> EApply $ ApplyPrim (PName ("", "apply_") <> pn) (makeConsList es)
   EApp (AppLam e es) -> EApp (AppLam e [makeConsList es])
 
-  EApply (ApplyPrim pn e) | NR.isVariadic pn -> EApply $ ApplyPrim (PName ("", "apply") <> pn) e
+  EApply (ApplyPrim pn e) | NR.isVariadic pn -> EApply $ ApplyPrim (PName ("", "apply_") <> pn) e
   EApply (ApplyLam n e) -> EApp $ AppLam n [e]
 
   ELam (LamList p b) -> ELam (Lam [p] b)

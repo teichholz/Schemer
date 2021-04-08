@@ -114,5 +114,5 @@ go = toSyn . go' . toExpr
     go' :: Expr Name -> Expr Name
     go' e = do
       makeLet
-        ("display" :: Name, makeLam ["final" :: Name] [makePrimApp ("halt" :: PrimName) ["final" :: Expr Name]])
+        ("display" :: Name, makeLam ["final" :: Name] [makePrimApp ("halt" :: PrimName') ["final" :: Expr Name]])
         (t e ("display" :: Expr Name))

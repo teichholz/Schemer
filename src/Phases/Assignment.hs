@@ -58,11 +58,11 @@ makeBoxBinding (n, e) = [(n, makeBox e)]
 
 -- Sets the value of a Box
 makeBoxSet :: Expr UniqName ->  Expr UniqName
-makeBoxSet (ESet n e) = makePrimApp ("vector-set!" :: PrimName) [toExpr n, ELit $ LitInt 0, e]
+makeBoxSet (ESet n e) = vectorSet (toExpr n) 0 e
 
 -- Gets the value of a Box
 makeBoxGet :: Expr UniqName -> Expr UniqName
-makeBoxGet (EVar n) = makePrimApp ("vector-ref" :: PrimName) [toExpr n, ELit $ LitInt 0]
+makeBoxGet var = vectorRef var 0
 
 isMutated' :: Mutated -> UniqName -> Bool
 isMutated' m n = S.member n m
@@ -90,7 +90,7 @@ removeSet e = do
       let f  = \n -> do
             (ns', bs) <- get
             if isMutated n then do
-              let n' = makeGloballyUniqueName n b
+              let n' = makeGloballyUniqueName "mutatedlamarg" b
               put (ns' ++ [n'], bs ++ makeBoxBinding (n, toExpr n'))
             else
               put (ns' ++ [n], bs)
@@ -101,7 +101,7 @@ removeSet e = do
       return $ ELam $ Lam ns' b'
 
     ELam (LamList n b) | isMutated n -> do
-      let n' = makeGloballyUniqueName n b
+      let n' = makeGloballyUniqueName "mutatedlamlarg" b
       return $ ELam $ LamList n' (toBody $ ELet $ Let (makeBoxBinding (n, toExpr n')) b)
 
     x -> return x
