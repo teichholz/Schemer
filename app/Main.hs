@@ -16,12 +16,13 @@ import qualified Phases.ANF as ANF
 import qualified Phases.CPS as CPS
 import qualified Phases.Assignment as Ass
 import qualified Phases.Unify as Uni
+import qualified Phases.Closure as Clo
 
 import Prelude (print)
 
 
 phases :: [ScEnv ()]
-phases = [Top.transform, Sim.transform, ANF.transform, CPS.transform, Ass.transform, Uni.transform]
+phases = [Top.transform, Sim.transform, ANF.transform, CPS.transform, Ass.transform, Uni.transform, Clo.transform]
 
 compileAction :: ScEnv ()
 compileAction = foldl1 (>>) phases
@@ -45,15 +46,14 @@ main = do
       print err
     Right sxps -> do
       syns <- mapM ScSynParser.runParser sxps
-      runApp srcfile syns opts compileAction
+      runApp srcfile syns opts
       -- forM_ syns (print . pretty)
 
 runApp :: SourceFile -- ^ Source
   -> [SynN] -- ^ Toplevel Scheme syntax made of declarations and expressions
   -> Options -- ^ CLI options
-  -> ScEnv () -- ^ Action to execute
   -> IO ()
-runApp sf top opts action = do
+runApp sf top opts = do
   logOptions' <- logOptionsHandle stderr (_optionsVerbose opts)
   let logOptions = setLogUseTime False $ setLogUseLoc False logOptions'
   withLogFunc logOptions $ \logFunc -> do
@@ -68,5 +68,4 @@ runApp sf top opts action = do
             , _options = opts
             , _name = "Schemer"
             , _logF = logFunc }
-    runRIO state action
-
+    runRIO state compileAction

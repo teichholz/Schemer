@@ -14,7 +14,6 @@ import RIO
 import RIO.Text (unpack, pack)
 import Types.Types
 import qualified Utils.NameResolver as NR
-import Data.List ((!!), iterate)
 import RIO.List.Partial (head)
 import RIO.Lens as L
 import qualified RIO.Set as S

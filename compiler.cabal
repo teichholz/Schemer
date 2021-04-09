@@ -30,6 +30,7 @@ library
       Phases.ANF
       Phases.Assignment
       Phases.Closure
+      Phases.Codegen
       Phases.Core
       Phases.CPS
       Phases.Quote

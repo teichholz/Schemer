@@ -28,7 +28,7 @@ data Env = Env
   { _file :: SourceFile
   , _ast      :: SomeRef (ScSyn Name)  -- Scheme syntax
   , _toplevel :: [ScSyn Name] -- Top level Scheme syntax
-  , _procs :: SomeRef [(Name, Expr Name)]
+  , _procs :: SomeRef [Proc Name]
   , _options :: Options -- CLI options / arguments
   , _name :: String -- Name of this awesome compiler
   , _logF :: LogFunc -- Logger (RIO)
@@ -82,6 +82,7 @@ data Decl a
 type Param a = a
 type Params a = [a]
 
+newtype Proc a = Proc { unProc :: (a, Expr a) }
 data Expr a
   = EApp (Application a)    -- (+ 1 2)
   | EVar a           -- +
@@ -92,9 +93,6 @@ data Expr a
   | EApply (Apply a)
   | ECallCC (Expr a)
   | ELit Literal -- '(1 2 3 4), ...
-
-  | Closure (Expr a)
-  | GetFree (Expr a, Int)
   deriving (Show, Generic, Typeable, Functor, Foldable, Traversable)
 
 data Apply a

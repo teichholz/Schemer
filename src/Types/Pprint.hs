@@ -85,7 +85,7 @@ instance Pretty a => Pretty (Body a) where
   pretty b =  doIndent $ align (vsep $ pretty <$> unBody b)
 
 instance Pretty PrimName where
-  pretty (PName (schemeName, rtName)) = pretty (schemeName, rtName)
+  pretty (PName (schemeName, rtName)) = pretty rtName
 
 instance Pretty UniqName where
   pretty (UName n i) = pretty n <> "@" <> pretty i
@@ -155,14 +155,26 @@ instance Pretty a => Pretty (Decl a) where
   pretty (FunDotDecl n ps p b) =
     inParens ("define" <+> mkParamListDot (n:ps) p <> pretty b)
 
+instance Pretty a => Pretty (Proc a) where
+  pretty (Proc (n, lam)) = pretty ("Proc:" :: String) <+> pretty n <> line <> pretty lam <> line
+
+-- instance Pretty a => Pretty [Proc a] where
+--   pretty procs = mconcat (pretty <$> procs)
+
 
 -- Type class from RIO to display human readable text
 
 instance Display (Doc a) where
   textDisplay = pack . show
 
+instance Pretty a => Display (Proc a) where
+  textDisplay = textDisplay . pretty
+
+instance Display a => Display [a] where
+  textDisplay = mconcat . fmap textDisplay
+
 instance Pretty a => Display (ScSyn a) where
   textDisplay = textDisplay . pretty
 
-instance Display String where
-  textDisplay = textDisplay . pretty
+-- instance Display String where
+--   textDisplay = textDisplay . pretty
