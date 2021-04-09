@@ -6,8 +6,8 @@
 module Utils.NameResolver (getCname, isPrim, isOverloaded, isVariadic) where
 
 import RIO
+import RIO.ByteString
 import Types.Types (Name, PrimName(..))
-import RIO.Text
 import Data.List as L
 import Data.Maybe as M
 
@@ -41,24 +41,24 @@ overloaded = ["+", "*", "make-string", "make-vector"]
 
 
 class IsVarName a where
-  getName :: a -> Text
+  getName :: a -> Name
 
-instance IsVarName String where
-  getName a = pack a
+instance IsVarName Name where
+  getName = id
 
 instance IsVarName Text where
-  getName = id
+  getName = encodeUtf8
 
 isPrim :: (IsVarName a) => a -> Bool
 isPrim a = L.any ((getName a ==) . (\(n, _, _) -> getName n)) prims
 
 isOverloaded :: PrimName -> Bool
-isOverloaded (PName (sn, _)) = sn `elem` overloaded
+isOverloaded (PName (sn, _)) = sn `L.elem` overloaded
 
 isVariadic :: PrimName -> Bool
-isVariadic (PName (sn, _)) = sn `elem` varargs
+isVariadic (PName (sn, _)) = sn `L.elem` varargs
 
-getCname :: String -> String
+getCname :: ByteString -> ByteString
 getCname str = head $ do
   (sname, cname, _) <- prims
   if sname == str || cname == str then

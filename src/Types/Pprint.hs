@@ -84,6 +84,9 @@ instance Pretty Literal where
 instance Pretty a => Pretty (Body a) where
   pretty b =  doIndent $ align (vsep $ pretty <$> unBody b)
 
+instance Pretty Name where
+  pretty name = unsafeViaShow name
+
 instance Pretty PrimName where
   pretty (PName (schemeName, rtName)) = pretty rtName
 

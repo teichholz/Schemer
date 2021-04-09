@@ -72,8 +72,8 @@ overload e = case e of
     overload' pn args =
       let len = L.length args
        in if
-              | L.elem pn ["+", "*"] -> pn <> PName ("", show len)
-              | L.elem pn ["make-string", "make-vector"] -> pn <> PName ("", show len)
+              | L.elem pn ["+", "*"] -> pn <> PName ("", fromString $ show len)
+              | L.elem pn ["make-string", "make-vector"] -> pn <> PName ("", fromString $ show len)
               | otherwise -> pn
 
 

@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-# LANGUAGE DeriveDataTypeable, DeriveGeneric, MultiParamTypeClasses #-}
 -- | Compiler types
@@ -57,7 +58,7 @@ instance HasLogFunc Env where
 dummy :: ScSyn Name
 dummy = ScExpr $ ELit LitUnspecified
 
-type Name = Text
+type Name = ByteString
 
 type SynN = ScSyn Name
 type ExprN = Expr Name
@@ -107,7 +108,7 @@ data Application a
 
 -- Scheme name and RT (Runtime) name
 -- Example: + (Scheme) and plus (RT)
-newtype PrimName = PName {unPName :: (String, String)}
+newtype PrimName = PName {unPName :: (ByteString, ByteString)}
   deriving (Show, Generic)
 
 instance Eq PrimName where
@@ -121,7 +122,7 @@ instance Semigroup PrimName where
 -- These represent methods needed by the runtime itself.
 -- These don't have an actual Scheme counterpart which is used for pretty printing.
 -- Example: halt (RT), no Scheme counterpart
-newtype PrimName' = PName' {unPName' :: String}
+newtype PrimName' = PName' {unPName' :: ByteString}
   deriving (Show, Generic)
 
 

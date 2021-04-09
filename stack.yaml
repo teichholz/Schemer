@@ -12,7 +12,7 @@ ghc-options:
 
 extra-deps:
 - unbound-generics-0.4.1@sha256:5020e8397dad610846cbd5bdc855e20edf9b9cb74f93f6c09488bba21118c409,5485
-# - regex-tdfa-text-1.0.0.3@sha256:fb72123627eadf43dd5ca74a2896940d50aac291e61f62177960f0563f7d5c03,1180
+- llvm-hs-pretty-0.9.0.0@sha256:b7a5de5f3dd97893d19d2b47af1e4dd8d075a5cf57062180a912d1f3ef1def60,1671
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

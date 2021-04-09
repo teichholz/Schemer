@@ -59,7 +59,7 @@ parseExpr = \case
     _ -> throwM $ ParseException "wrong set!")
 
   List[Atom "apply", lhs, rhs] -> (case lhs of
-   Atom hd | isPrim hd -> makePrimApply (unpack hd) <$> parseExpr lhs
+   Atom hd | isPrim hd -> makePrimApply hd <$> parseExpr lhs
    Atom hd | isIdent hd -> liftA2 makeLamApply (parseIdent hd) (parseExpr rhs)
    List _ -> liftA2 makeLamApply (parseExpr lhs) (parseExpr rhs)
    _ -> throwM $ ParseException "wrong apply")
@@ -74,7 +74,7 @@ parseExpr = \case
     _ -> throwM $ ParseException "Wrong call\\cc"
 
   List(hd:tl) -> case hd of
-    Atom hd | isPrim hd -> makePrimApp (unpack hd) <$> parseExprs tl
+    Atom hd | isPrim hd -> makePrimApp hd <$> parseExprs tl
     Atom hd | isIdent hd -> liftA2 makeLamApp (parseIdent hd) (parseExprs tl)
     List _ -> liftA2 makeLamApp (parseExpr hd) (parseExprs tl)
     _ -> throwM $ ParseException "Wrong application"
@@ -108,7 +108,7 @@ parseBindings = sequence . go
   where
     go :: [Sexp] -> [IO (Name, Expr Name)]
     go = \case
-      List[Atom id, expr]:tl -> let t =  mapM parseExpr (makeName id, expr) in t:go tl
+      List[Atom id, expr]:tl -> let t =  mapM parseExpr (toName id, expr) in t:go tl
       [] -> []
       _ -> throwM $ ParseException "Wrong binding form"
 

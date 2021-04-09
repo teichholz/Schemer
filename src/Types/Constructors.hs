@@ -11,7 +11,6 @@
 module Types.Constructors where
 
 import RIO
-import RIO.Text (unpack, pack)
 import Types.Types
 import qualified Utils.NameResolver as NR
 import RIO.List.Partial (head)
@@ -151,33 +150,24 @@ instance (ToExpr e a) => ToBinding (a, e) a where
 instance (ToName n, ToExpr e Name) => ToBinding [(n, e)] Name where
   toBinding = fmap (bimap toName toExpr)
 
--- -- instance ToBind ()
-
--- -- ToName
-instance ToName String where
-  toName = T.pack
-
--- instance ToName Text where
---   toName = toName . RIO.Text.unpack
 
 instance ToName Name where
   toName = id
 
-instance ToName Utf8Builder  where
-  toName = toName . textDisplay
+instance ToName String  where
+  toName = fromString
 
--- IsString for OverloadedStrings pragma
--- instance IsString Name where
---   fromString = toName
+instance ToName Text where
+  toName = encodeUtf8
 
 instance IsString (Expr Name) where
   fromString = toExpr . toName
 
 instance IsString PrimName where
-  fromString = toPrimName
+  fromString s = toPrimName $ (fromString s :: ByteString)
 
 instance IsString PrimName' where
-  fromString s = PName' s
+  fromString = PName' . fromString
 
 -- -- ToPrimName
 instance ToPrimName PrimName where
@@ -186,12 +176,11 @@ instance ToPrimName PrimName where
 instance ToPrimName PrimName' where
   toPrimName (PName' n) = PName (n, n)
 
-instance ToPrimName String where
+instance ToPrimName Name where
   toPrimName s = PName (s, NR.getCname s)
 
 instance ToPrimName Text where
-  toPrimName = toPrimName . unpack
-
+  toPrimName = toPrimName . toName
 
 -------------------------------------------------------------------------------
 -- Constructors
@@ -210,9 +199,9 @@ makeLamApply :: Expr a -> Expr a -> Expr a
 makeLamApply expr1 expr2 = toExpr $ ApplyLam expr1 expr2
 
 makeVar :: String -> Expr Name
-makeVar = EVar . makeName . pack
+makeVar = EVar . makeName . toName
 
-makeName :: Text -> Name
+makeName :: ByteString -> Name
 makeName = id
 
 makeLam :: (ToBody b Name, ToName n) => [n] -> b -> Expr Name
@@ -346,10 +335,10 @@ isLamApp :: Expr a -> Bool
 isLamApp (EApp (AppLam _ _)) = True
 isLamApp _ = False
 
-makeName' :: String -> Int -> Name
-makeName' s i = toName $ s <> show i
+makeName' :: ByteString -> Int -> Name
+makeName' s i = toName $ show s <> show i
 
-makeUniqueName :: (FreeVars e Name) => String -> e -> Name
+makeUniqueName :: (FreeVars e Name) => ByteString -> e -> Name
 makeUniqueName n e =
   let frees =  fv e in
     toName $ head $ filter (\n -> not $ S.member n frees)
@@ -358,7 +347,7 @@ makeUniqueName n e =
 makeGloballyUniqueName :: (Foldable e, Functor e, FreeVars (e Name) Name, FreeVars (e UniqName) UniqName) => Name -> e UniqName -> UniqName
 makeGloballyUniqueName n e =
   let frees =  fv e
-      n' = makeUniqueName (T.unpack n) (unAlpha e)
+      n' = makeUniqueName n (unAlpha e)
       low = succ $ indexOfUniqName (maximum e)
   in
      head $ filter (\n -> not $ S.member n frees)

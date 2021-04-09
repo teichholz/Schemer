@@ -75,7 +75,7 @@ lambdad2lambdal = \case
     go :: Lambda Name -> EN
     go = \case
       LamDot (args, dotarg) body -> do
-        let lamlarg = makeUniqueName (show dotarg <> "'") dotarg
+        let lamlarg = makeUniqueName (dotarg <> "'") dotarg
         let binding = toBinding $ evalState (go' (toExpr lamlarg) (args, dotarg)) (id, [])
         makeLamList lamlarg (makeLet binding body)
       x -> toExpr x
