@@ -41,7 +41,7 @@ go = callWithAlpha (descend closureConversion)
 hoist :: ScSyn Name -> [Proc Name]
 hoist e =
   let (maine, (_, procs)) = runState (descendM (makeMap go) e) (0, [])
-   in procs ++ [Proc ("main", toExpr maine)]
+   in procs ++ [Proc ("main", makeLam ([] :: [Name]) (toBody maine))]
   where
     go :: Expr Name -> State (Counter, [Proc Name]) (Expr Name)
     go e = case e of

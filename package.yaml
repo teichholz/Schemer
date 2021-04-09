@@ -28,6 +28,8 @@ dependencies:
 - mtl
 - regex-tdfa
 - raw-strings-qq
+- llvm-hs
+- llvm-hs-pure
 
 ghc-options:
 - -Wall
