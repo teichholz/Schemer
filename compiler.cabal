@@ -36,6 +36,7 @@ library
       Phases.Quote
       Phases.Simplify
       Phases.Test
+      Phases.Test2
       Phases.Toplevel
       Phases.Unify
       Sexp.Literals
