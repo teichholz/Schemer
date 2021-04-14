@@ -29,7 +29,7 @@ data Env = Env
   { _file :: SourceFile
   , _ast      :: SomeRef (ScSyn Name)  -- Scheme syntax
   , _toplevel :: [ScSyn Name] -- Top level Scheme syntax
-  , _procs :: SomeRef [Proc Name]
+  , _procs :: SomeRef [Proc UniqName]
   , _options :: Options -- CLI options / arguments
   , _name :: String -- Name of this awesome compiler
   , _logF :: LogFunc -- Logger (RIO)
@@ -373,6 +373,10 @@ callWithAlphaM f = fmap unAlpha . f . runAlpha
 
 class Alphatization e where
   alpha :: e Name -> State (Counter, NameMap) (e UniqName)
+
+instance Alphatization Proc where
+  alpha (Proc (name, expr)) =
+    fmap (\e -> Proc (makeUniqName name 0, e)) (alpha expr)
 
 instance Alphatization ScSyn where
   alpha (ScExpr e) = ScExpr <$> alpha e

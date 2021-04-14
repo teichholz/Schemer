@@ -25,7 +25,7 @@ transform = do
   ast <- readSomeRef astref
 
   let ast' = go ast
-  let procs = hoist ast'
+  let procs = hoist $ runAlpha ast'
 
   logDebug $ "AST after closure transformation:\n" <> display ast'
   logDebug $ "All Procs after closure transformation:\n" <> display procs
@@ -38,16 +38,16 @@ transform = do
 go :: ScSyn Name -> ScSyn Name
 go = callWithAlpha (descend closureConversion)
 
-hoist :: ScSyn Name -> [Proc Name]
+hoist :: ScSyn UniqName -> [Proc UniqName]
 hoist e =
   let (maine, (_, procs)) = runState (descendM (makeMap go) e) (0, [])
-   in procs ++ [Proc ("main", makeLam ([] :: [Name]) (toBody maine))]
+   in procs ++ [Proc (makeUniqName "main" 0, makeLam ([] :: [UniqName]) (toBody maine))]
   where
-    go :: Expr Name -> State (Counter, [Proc Name]) (Expr Name)
+    go :: Expr UniqName -> State (Counter, [Proc UniqName]) (Expr UniqName)
     go e = case e of
       ELam (Lam _ _) -> do
         (cntr, _) <- get
-        let procname = toName ("proc" <> show cntr)
+        let procname = makeUniqName "proc" cntr
             proc = Proc (procname, e)
         modify $ bimap (+ 1) (++ [proc])
         return $ toExpr procname

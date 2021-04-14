@@ -204,8 +204,8 @@ makeVar = EVar . makeName . toName
 makeName :: ByteString -> Name
 makeName = id
 
-makeLam :: (ToBody b Name, ToName n) => [n] -> b -> Expr Name
-makeLam names b = toExpr $ Lam  (toName <$> names) (toBody b)
+makeLam :: (ToBody b n) => [n] -> b -> Expr n
+makeLam names b = toExpr $ Lam  names (toBody b)
 
 makeLamDot :: (ToBody b Name, ToName n, ToName n2) => [n] -> n2 -> b -> Expr Name
 makeLamDot names name b = toExpr $ LamDot (toName <$> names, toName name) (toBody b)
