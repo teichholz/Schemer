@@ -36,6 +36,7 @@ import LLVM.AST.Name as LN
 import LLVM.AST.Typed (typeOf)
 import qualified RIO.Text as T
 import RIO.List (sortBy)
+import Data.List (repeat)
 
 transform :: ScEnv ()
 transform = do
@@ -50,16 +51,21 @@ transform = do
 -- Codegen
 -------------------------------------------------------------------------------
 
--- codegen :: Proc UniqName -> LLVM ()
--- codegen (Proc (name, body)) =
+codegen :: Proc UniqName -> LLVM ()
+codegen (Proc (name, ELam (Lam ps body))) = do
+  let args = zip (repeat sobjPtr) (fmap toName ps)
+  define (decl sobjPtr name args) $ \fptr ->
+    return ()
 
 
 -- codegenBody :: Expr UniqName -> Codegen ()
 -- codegenBody e = case e  of
 --   ELit lit -> literal lit
 --   where
---     literal :: Literal -> Codegen ()
---     literal (LitInt int) = call (callable)
+--     literal :: Literal -> Codegen Operand
+--     literal (LitInt int) = do
+--       let fn = callableFnPtr "const_init_int"
+--       call fn [intC int]
 
 
 -------------------------------------------------------------------------------
@@ -134,27 +140,26 @@ data BlockState
   , term  :: Maybe (Named Terminator)       -- Block terminator
   } deriving Show
 
-newtype Codegen a = Codegen { runCodegen :: State CodegenState a }
-  deriving (Functor, Applicative, Monad, MonadState CodegenState )
-
 newtype LLVM a = LLVM (State AST.Module a)
-  deriving (Functor, Applicative, Monad, MonadState AST.Module )
+  deriving (Functor, Applicative, Monad, MonadState AST.Module)
+
+newtype Codegen a = Codegen { runCodegen :: StateT CodegenState LLVM a }
+  deriving (Functor, Applicative, Monad, MonadState CodegenState)
 
 -------------------------------------------------------------------------------
 -- Module Level
 -------------------------------------------------------------------------------
 
-runLLVM :: AST.Module -> LLVM a -> AST.Module
-runLLVM mod (LLVM m) = execState m mod
+runLLVM :: LLVM a -> AST.Module
+runLLVM (LLVM m) = execState m emptyModule
 
 emptyModule :: AST.Module
 emptyModule = defaultModule { moduleName = "Scheme" }
 
-
-decl :: Type -> ShortByteString -> [(Type, Name)] -> Global
+decl :: ToLLVMName name => Type -> name -> [NamedArg] -> Global
 decl ret label argtys =
   functionDefaults {
-    name        = Name label
+    name        = toName label
   , parameters  = ([Parameter ty nm [] | (ty, nm) <- argtys], False)
   , returnType  = ret
   }
@@ -165,12 +170,16 @@ addDefn d = do
   modify $ \s -> s { moduleDefinitions = defs ++ [d] }
 
 define ::  Global -> (Type -> Codegen a) -> LLVM ()
-define decl body = addDefn $ GlobalDefinition $ decl { basicBlocks = bls }
-  where
-    bls = execCodegen $ do
+define decl body = do
+
+  codegenState <- execCodegen $ do
       enter <- addBlock entryBlockName
       _ <- setBlock enter
       body ptrThisType
+  let bls = createBlocks codegenState
+
+  addDefn $ GlobalDefinition $ decl { basicBlocks = bls }
+  where
     ptrThisType = PointerType
       { pointerReferent = FunctionType
           { resultType = returnType decl,
@@ -228,11 +237,11 @@ declarePrims = mapM_ go primsAndAritys
     go :: (ByteString, [Int]) -> LLVM ()
     go (pn, [arity]) =
       forM_ [pn, "apply_" <> pn] $ \pn' ->
-        declare $ decl sobj (toShort pn') (primArgList arity)
+        declare $ decl sobj pn' (primArgList arity)
     go (pn, aritys@[_, _]) =
       forM_ aritys $ \arity ->
       forM_ [pn, "apply_" <> pn] $ \pn' ->
-        declare $ decl sobj (toShort $ pn' <> fromString (show arity)) (primArgList arity)
+        declare $ decl sobj (pn' <> fromString (show arity)) (primArgList arity)
     go _ = error "invalid aritys of primitve function"
 
 declareConstInits :: LLVM ()
@@ -267,7 +276,7 @@ sortBlocks :: [(Name, BlockState)] -> [(Name, BlockState)]
 sortBlocks = sortBy (compare `on` idx . snd)
 
 createBlocks :: CodegenState -> [BasicBlock]
-createBlocks m = fmap makeBlock $ sortBlocks $ Map.toList (blocks m)
+createBlocks m = fmap makeBlock $ sortBlocks $ Map.toList $ blocks m
 
 makeBlock :: (Name, BlockState) -> BasicBlock
 makeBlock (l, BlockState _ s t) = BasicBlock l (reverse s) (maketerm t)
@@ -284,8 +293,8 @@ emptyBlock i = BlockState i [] Nothing
 emptyCodegen :: CodegenState
 emptyCodegen = CodegenState (Name entryBlockName) Map.empty [] 1 0 Map.empty
 
-execCodegen :: Codegen a -> [BasicBlock]
-execCodegen m = createBlocks $ execState (runCodegen m) emptyCodegen
+execCodegen :: Codegen a -> LLVM CodegenState
+execCodegen m = let t = execStateT (runCodegen m) emptyCodegen in t
 
 fresh :: Codegen Word
 fresh = do
