@@ -77,11 +77,15 @@ codegen (Proc (name, ELam (Lam ps (Body [body])))) = do
 
   define (decl sobjPtr name formals) $ \operands -> do
     -- Register the arguments, so they can be accessed as variables
-    let args = zip (fmap toName ps) operands
+    let names = fmap toName ps
+        args = zip names operands
     mapM_ (uncurry assign) args
 
     -- Codegen the body
     body' <- codegenExpr (toExpr body)
+
+    -- Unregister the arguments after the body
+    mapM_ unassign names
     ret body'
 
 codegen _ = error "wrong Proc"
@@ -111,7 +115,7 @@ codegenExpr e = case e  of
       fn <- callableFnPtr "const_init_symbol"
       call fn [strptr]
     literal (LitList lits) = do
-      let list' = makeConsList (fmap ELit lits)
+      let list' = makeConsList' (fmap ELit lits)
       codegenExpr list'
     literal (LitVector lits) = do
       let list' = makeVectorFromList (fmap ELit lits)
@@ -175,27 +179,23 @@ codegenExpr e = case e  of
 
     closureCall :: Expr UniqName -> [Expr UniqName] -> Codegen Operand
     closureCall (EVar name) es = do
-      createClosure <- callableFnPtr "closure_create"
       vec <- getvar name
-      clo <- call createClosure [vec]
-
-      getIPtr <- callableFnPtr "closure_get_iptr"
-      iptr <- call getIPtr [clo]
-      fptr <- uitofp i64 iptr
-
-      args <- mapM codegenExpr es
-      call fptr (clo:args)
+      callClosureWithArgs vec es
 
     closureCall e es = do
-      createClosure <- callableFnPtr "closure_create"
       vec <- codegenExpr e
+      callClosureWithArgs vec es
+
+    callClosureWithArgs :: Operand -> [Expr UniqName] -> Codegen Operand
+    callClosureWithArgs vec args = do
+      createClosure <- callableFnPtr "closure_create"
       clo <- call createClosure [vec]
 
       getIPtr <- callableFnPtr "closure_get_iptr"
       iptr <- call getIPtr [clo]
-      fptr <- uitofp i64 iptr
+      fptr <- uitofp iptr
 
-      args <- mapM codegenExpr es
+      args <- mapM codegenExpr args
       call fptr (clo:args)
 
 initModule :: LLVM ()
@@ -219,6 +219,9 @@ sobjPtr = ptr sobj
 funTy :: Type
 funTy = FunctionType sobjPtr [sobjPtr, sobjPtr] False
 
+funTyPtr :: Type
+funTyPtr = PointerType funTy (AddrSpace 0)
+
 unnamedArgList :: [Name]
 unnamedArgList = fmap argNameRT [0..]
 
@@ -240,7 +243,8 @@ helper :: [(Type ,ShortByteString, [NamedArg])]
 helper = [(i8 ,"coerce_c", singletonArg sobjPtr), (sobjPtr, "get_nil", []),
           (sobjPtr, "get_unspecified", []), (sobjPtr, "get_false", []),
           (sobjPtr, "get_true", []), (sobjPtr, "halt", singletonArg sobjPtr),
-          (sobjPtr, "apply_halt", singletonArg sobjPtr), (sobjPtr, "closure_create", singletonArg sobjPtr)]
+          (sobjPtr, "apply_halt", singletonArg sobjPtr), (sobjPtr, "closure_create", singletonArg sobjPtr),
+          (i64, "closure_get_iptr", singletonArg sobjPtr)]
 
 class ToLLVMName a where
   toName :: a -> Name
@@ -576,8 +580,8 @@ charC c = const $ C.Int 8 (toInteger $ ord c)
 call :: Operand -> [Operand] -> Codegen Operand
 call fn args = instr sobjPtr $ Call Nothing CC.Fast [] (Right fn) (toArgs args) [] []
 
-uitofp :: Type -> Operand -> Codegen Operand
-uitofp ty a = instr funTy $ UIToFP a ty []
+uitofp ::  Operand -> Codegen Operand
+uitofp a = instr funTyPtr $ UIToFP a funTyPtr []
 
 fptoui :: Type -> Operand -> Codegen Operand
 fptoui ty a = instr i64 $ FPToUI a ty []

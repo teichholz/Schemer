@@ -10,6 +10,7 @@ import Types.Types
 import Types.Constructors
 import RIO.Text as T
 import Data.Text.Prettyprint.Doc
+import Data.List as L
 
 
 -------------------------------------------------------------------------------
@@ -85,7 +86,10 @@ instance Pretty a => Pretty (Body a) where
   pretty b =  doIndent $ align (vsep $ pretty <$> unBody b)
 
 instance Pretty Name where
-  pretty name = unsafeViaShow name
+  pretty name =
+    let str = show name
+        len = L.length str in
+      pretty $ L.take (len -2 ) $ L.drop 1 str
 
 instance Pretty PrimName where
   pretty (PName (schemeName, rtName)) = pretty rtName
@@ -127,9 +131,9 @@ instance Pretty a => Pretty (Application a) where
 
 instance Pretty a => Pretty (Apply a) where
   pretty (ApplyPrim n e) =
-    inParens (pretty n <> doIndent (vertDocs [pretty e]))
+    inParens ("apply" <+> pretty n <> doIndent (vertDocs [pretty e]))
   pretty (ApplyLam e e') =
-    inParens (pretty e <> doIndent (vertDocs [pretty e']))
+    inParens ("apply" <+> pretty e <> doIndent (vertDocs [pretty e']))
 
 instance Pretty a => Pretty (ScSyn a) where
   pretty (ScDecl d) = pretty d

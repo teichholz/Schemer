@@ -302,7 +302,10 @@ cadr :: Int -> Expr a -> Expr a
 cadr cnt e = car $ fix (\rec n -> if n < 1 then e else cdr (rec (n - 1))) cnt
 
 makeConsList :: [Expr a] -> Expr a
-makeConsList = foldr1 cons
+makeConsList = foldr cons (ELit LitNil)
+
+makeConsList' :: [Expr a] -> Expr a
+makeConsList' = foldr1 cons
 
 makeVectorFromList :: [Expr a] -> Expr a
 makeVectorFromList es = makePrimApp ("list2vector" :: PrimName) [makeConsList es]
@@ -337,13 +340,16 @@ isLamApp (EApp (AppLam _ _)) = True
 isLamApp _ = False
 
 makeName' :: ByteString -> Int -> Name
-makeName' s i = toName $ show s <> show i
+makeName' s i = toName $ s <> fromString (show i)
 
 makeUniqueName :: (FreeVars e Name) => ByteString -> e -> Name
 makeUniqueName n e =
   let frees =  fv e in
-    toName $ head $ filter (\n -> not $ S.member n frees)
-                           (fmap (makeName' n) [0..])
+    if S.null frees then
+      toName n
+    else
+      toName $ head $ filter (\n -> not $ S.member n frees)
+                             (fmap (makeName' n) [0..])
 
 makeGloballyUniqueName :: (Foldable e, Functor e, FreeVars (e Name) Name, FreeVars (e UniqName) UniqName) => Name -> e UniqName -> UniqName
 makeGloballyUniqueName n e =

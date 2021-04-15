@@ -79,10 +79,10 @@ overload e = case e of
 
 unify :: Expr UniqName -> Expr UniqName
 unify e = case e of
-  EApp (AppPrim pn es) | NR.isVariadic pn -> EApply $ ApplyPrim (PName ("", "apply_") <> pn) (makeConsList es)
+  EApp (AppPrim pn es) | NR.isVariadic pn -> EApp $ AppPrim (PName ("", "apply_") <> pn) [makeConsList es]
   EApp (AppLam e es) -> EApp (AppLam e [makeConsList es])
 
-  EApply (ApplyPrim pn e) | NR.isVariadic pn -> EApply $ ApplyPrim (PName ("", "apply_") <> pn) e
+  EApply (ApplyPrim pn e) -> EApp $ AppPrim (PName ("", "apply_") <> pn) [e]
   EApply (ApplyLam n e) -> EApp $ AppLam n [e]
 
   ELam (LamList p b) -> ELam (Lam [p] b)

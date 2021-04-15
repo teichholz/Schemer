@@ -84,7 +84,7 @@ removeSet e = do
     ELet (Let [pat@(n, _)] b) | isMutated n -> do
       return $ ELet $ Let (makeBoxBinding pat) b
 
-    -- EApp (AppLam e es) -> return $ makeLamApp e [makeConsList es]
+    EVar n | isMutated n -> return $ makeBoxGet e
 
     ELam (Lam ns b) -> do
       let f  = \n -> do
