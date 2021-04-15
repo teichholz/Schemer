@@ -17,12 +17,13 @@ import qualified Phases.CPS as CPS
 import qualified Phases.Assignment as Ass
 import qualified Phases.Unify as Uni
 import qualified Phases.Closure as Clo
+import qualified Phases.Codegen as Cod
 
 import Prelude (print)
 
 
 phases :: [ScEnv ()]
-phases = [Top.transform, Sim.transform, ANF.transform, CPS.transform, Ass.transform, Uni.transform, Clo.transform]
+phases = [Top.transform, Sim.transform, ANF.transform, {- CPS.transform, -} Ass.transform, Uni.transform, Clo.transform, Cod.transform]
 
 compileAction :: ScEnv ()
 compileAction = foldl1 (>>) phases

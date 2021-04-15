@@ -15,6 +15,7 @@ import Types.Types
 import qualified Utils.NameResolver as NR
 import RIO.List.Partial (head)
 import RIO.Lens as L
+import RIO.List.Partial (foldr1)
 import qualified RIO.Set as S
 import qualified RIO.Text
 import qualified Data.Text as T
@@ -301,7 +302,7 @@ cadr :: Int -> Expr a -> Expr a
 cadr cnt e = car $ fix (\rec n -> if n < 1 then e else cdr (rec (n - 1))) cnt
 
 makeConsList :: [Expr a] -> Expr a
-makeConsList = foldr cons (ELit LitNil)
+makeConsList = foldr1 cons
 
 makeVectorFromList :: [Expr a] -> Expr a
 makeVectorFromList es = makePrimApp ("list2vector" :: PrimName) [makeConsList es]

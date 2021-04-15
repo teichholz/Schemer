@@ -72,5 +72,5 @@ floatLiteral = L.signed A.empty L.float
 boolLiteral :: Parser Bool
 boolLiteral = true <|> false
   where
-    true = string "#\t" >> return True
-    false = string "#\f" >> return False
+    true = string "#t" >> return True
+    false = string "#f" >> return False

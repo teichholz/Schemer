@@ -37,12 +37,21 @@ import LLVM.AST.Typed (typeOf)
 import qualified RIO.Text as T
 import RIO.List (sortBy)
 import Data.List (repeat)
+import Control.Monad.Fix (MonadFix)
+import LLVM.Module (withModuleFromAST)
+import LLVM.Context (withContext)
+import LLVM (moduleLLVMAssembly)
+import Prelude (print)
+import LLVM.Prelude (putStrLn)
+import RIO.ByteString (putStr)
 
 transform :: ScEnv ()
 transform = do
   logInfo "Generating code for the ast"
   procsref <- asks _procs
   procs <- readSomeRef procsref
+
+  mod <- go procs
 
   return ()
 
@@ -51,32 +60,164 @@ transform = do
 -- Codegen
 -------------------------------------------------------------------------------
 
+go :: [Proc UniqName] -> ScEnv Module
+go procs =
+  liftIO $ withContext $ \context ->
+    withModuleFromAST context newast $ \m -> do
+      llstr <- moduleLLVMAssembly m
+      putStr llstr
+      return newast
+  where
+    modn = initModule >> mapM codegen procs
+    newast = runLLVM modn
+
 codegen :: Proc UniqName -> LLVM ()
-codegen (Proc (name, ELam (Lam ps body))) = do
-  let args = zip (repeat sobjPtr) (fmap toName ps)
-  define (decl sobjPtr name args) $ \fptr ->
-    return ()
+codegen (Proc (name, ELam (Lam ps (Body [body])))) = do
+  let formals = zip (repeat sobjPtr) (fmap toName ps)
 
+  define (decl sobjPtr name formals) $ \operands -> do
+    -- Register the arguments, so they can be accessed as variables
+    let args = zip (fmap toName ps) operands
+    mapM_ (uncurry assign) args
 
--- codegenBody :: Expr UniqName -> Codegen ()
--- codegenBody e = case e  of
---   ELit lit -> literal lit
---   where
---     literal :: Literal -> Codegen Operand
---     literal (LitInt int) = do
---       let fn = callableFnPtr "const_init_int"
---       call fn [intC int]
+    -- Codegen the body
+    body' <- codegenExpr (toExpr body)
+    ret body'
 
+codegen _ = error "wrong Proc"
+
+codegenExpr :: Expr UniqName -> Codegen Operand
+codegenExpr e = case e  of
+  ELit lit -> literal lit
+  ELet lt -> letbind lt
+  EVar n -> ident n
+  EIf tst thn els -> cond tst thn els
+  EApp (AppPrim pn es) -> primCall pn es
+  EApp (AppLam e es) -> closureCall e es
+  where
+    literal :: Literal -> Codegen Operand
+    literal (LitInt int) = do
+      fn <- callableFnPtr "const_init_int"
+      call fn [intC int]
+    literal (LitFloat f) = do
+      fn <- callableFnPtr "const_init_float"
+      call fn [floatC f]
+    literal (LitString s) = do
+      strptr <- globalStringPtr "str" s
+      fn <- callableFnPtr "const_init_string"
+      call fn [strptr]
+    literal (LitSymbol s) = do
+      strptr <- globalStringPtr "sym" s
+      fn <- callableFnPtr "const_init_symbol"
+      call fn [strptr]
+    literal (LitList lits) = do
+      let list' = makeConsList (fmap ELit lits)
+      codegenExpr list'
+    literal (LitVector lits) = do
+      let list' = makeVectorFromList (fmap ELit lits)
+      codegenExpr list'
+    literal (LitBool b) = do
+      fn <- callableFnPtr (if b then "get_true" else "get_false")
+      call fn []
+    literal LitUnspecified = do
+      fn <- callableFnPtr "get_unspecified"
+      call fn []
+    literal LitNil = do
+      fn <- callableFnPtr "get_nil"
+      call fn []
+
+    letbind :: Let UniqName -> Codegen Operand
+    letbind (Let [(n, expr)] (Body [body])) = do
+      letval <- codegenExpr expr
+      assign n letval
+      bodyval <- codegenExpr (toExpr body)
+      unassign n
+      return bodyval
+
+    ident :: UniqName -> Codegen Operand
+    ident un = do
+      let name = toName un
+      maybeFnPtr <- fnPtr name
+      case maybeFnPtr of
+        Nothing -> getvar un
+        Just fn -> fptoui i64 (const $ global fn name)
+
+    cond :: Expr UniqName -> Expr UniqName -> Expr UniqName -> Codegen Operand
+    cond tst thn els = do
+      thenBlock <- addBlock "then"
+      elseBlock <- addBlock "else"
+      mergeBlock <- addBlock "merge"
+
+      tst' <- codegenExpr tst
+      coerceFn <- callableFnPtr "coerce_c"
+      i8tst <- call coerceFn [tst']
+      i1tst <- trunc i1 i8tst
+      cbr i1tst thenBlock elseBlock
+
+      setBlock thenBlock
+      thn' <- codegenExpr thn
+      br mergeBlock
+      thenBlock <- getBlock
+
+      setBlock elseBlock
+      els' <- codegenExpr els
+      br mergeBlock
+      elseBlock <- getBlock
+
+      setBlock mergeBlock
+      phi [(thn', thenBlock), (els', elseBlock)]
+
+    primCall :: PrimName -> [Expr UniqName] -> Codegen Operand
+    primCall pn es = do
+      fn <- callableFnPtr (toName pn)
+      es <- mapM codegenExpr es
+      call fn es
+
+    closureCall :: Expr UniqName -> [Expr UniqName] -> Codegen Operand
+    closureCall (EVar name) es = do
+      createClosure <- callableFnPtr "closure_create"
+      vec <- getvar name
+      clo <- call createClosure [vec]
+
+      getIPtr <- callableFnPtr "closure_get_iptr"
+      iptr <- call getIPtr [clo]
+      fptr <- uitofp i64 iptr
+
+      args <- mapM codegenExpr es
+      call fptr (clo:args)
+
+    closureCall e es = do
+      createClosure <- callableFnPtr "closure_create"
+      vec <- codegenExpr e
+      clo <- call createClosure [vec]
+
+      getIPtr <- callableFnPtr "closure_get_iptr"
+      iptr <- call getIPtr [clo]
+      fptr <- uitofp i64 iptr
+
+      args <- mapM codegenExpr es
+      call fptr (clo:args)
+
+initModule :: LLVM ()
+initModule = do
+  declarePrims
+  declareConstInits
+  declareHelper
 
 -------------------------------------------------------------------------------
 -- LLVM-IR Types and Utils
 -------------------------------------------------------------------------------
 
-sobj :: Type -- opaque structure which the RT defines
+-- opaque structure which the RT defines
+sobj :: Type
 sobj = TY.NamedTypeReference "SObj"
 
+-- Pointer to the opaque structure
 sobjPtr :: Type
 sobjPtr = ptr sobj
+
+funTy :: Type
+funTy = FunctionType sobjPtr [sobjPtr, sobjPtr] False
 
 unnamedArgList :: [Name]
 unnamedArgList = fmap argNameRT [0..]
@@ -85,7 +226,7 @@ singletonArg :: Type -> [(Type, Name)]
 singletonArg ty = [(ty, argNameRT 0)]
 
 primArgList :: Int -> [(Type, Name)]
-primArgList argcount = zip (replicate argcount sobj) unnamedArgList
+primArgList argcount = zip (replicate argcount sobjPtr) unnamedArgList
 
 strType :: Type
 strType = ptr i8
@@ -104,6 +245,9 @@ helper = [(i8 ,"coerce_c", singletonArg sobjPtr), (sobjPtr, "get_nil", []),
 class ToLLVMName a where
   toName :: a -> Name
 
+instance ToLLVMName Name where
+  toName = id
+
 instance ToLLVMName ByteString where
   toName = toName . toShort
 
@@ -111,15 +255,17 @@ instance ToLLVMName ShortByteString where
   toName = Name
 
 instance ToLLVMName UniqName where
-  toName (UName n i) = toName (n <> fromString (show i))
+  toName (UName n i) = toName (n <> if i == 0 then "" else fromString (show i))
 
+instance ToLLVMName PrimName where
+  toName (PName (_, rtName)) = toName rtName
 -------------------------------------------------------------------------------
 -- Types
 -------------------------------------------------------------------------------
 
 type NamedArg = (Type, Name)
 
-type SymbolTable = [(ShortByteString, Operand)]
+type SymbolTable = [(Name, Operand)]
 
 type Names = Map.Map ShortByteString Int
 
@@ -141,10 +287,10 @@ data BlockState
   } deriving Show
 
 newtype LLVM a = LLVM (State AST.Module a)
-  deriving (Functor, Applicative, Monad, MonadState AST.Module)
+  deriving (Functor, Applicative, Monad, MonadState AST.Module, MonadFix)
 
 newtype Codegen a = Codegen { runCodegen :: StateT CodegenState LLVM a }
-  deriving (Functor, Applicative, Monad, MonadState CodegenState)
+  deriving (Functor, Applicative, Monad, MonadState CodegenState, MonadFix)
 
 -------------------------------------------------------------------------------
 -- Module Level
@@ -154,7 +300,7 @@ runLLVM :: LLVM a -> AST.Module
 runLLVM (LLVM m) = execState m emptyModule
 
 emptyModule :: AST.Module
-emptyModule = defaultModule { moduleName = "Scheme" }
+emptyModule = defaultModule { moduleName = "Scheme", moduleDefinitions = [TypeDefinition "SObj" Nothing] }
 
 decl :: ToLLVMName name => Type -> name -> [NamedArg] -> Global
 decl ret label argtys =
@@ -169,63 +315,69 @@ addDefn d = do
   defs <- gets moduleDefinitions
   modify $ \s -> s { moduleDefinitions = defs ++ [d] }
 
-define ::  Global -> (Type -> Codegen a) -> LLVM ()
+define ::  Global -> ([Operand] -> Codegen a) -> LLVM ()
 define decl body = do
+  let paramnames = [ name  | (Parameter _ name _)  <- fst $ parameters decl]
 
   codegenState <- execCodegen $ do
       enter <- addBlock entryBlockName
-      _ <- setBlock enter
-      body ptrThisType
+      setBlock enter
+      body $ map (LocalReference sobjPtr) paramnames
   let bls = createBlocks codegenState
 
   addDefn $ GlobalDefinition $ decl { basicBlocks = bls }
-  where
-    ptrThisType = PointerType
-      { pointerReferent = FunctionType
-          { resultType = returnType decl,
-            argumentTypes = fmap (\(Parameter ty _ _) -> ty) (fst $ parameters decl),
-            isVarArg = False
-          },
-        pointerAddrSpace = AddrSpace 0
-      }
 
-fnPtr :: Name -> LLVM Type
-fnPtr nm = findType <$> gets moduleDefinitions
+fnPtr :: Name -> Codegen (Maybe Type)
+fnPtr nm = do
+  fn <- findFnByName nm
+  return $ fmap (\fn' -> PointerType (typeOf fn') (AddrSpace 0)) fn
+
+findFnByName :: Name -> Codegen (Maybe Global)
+findFnByName nm = Codegen $ lift $ findType <$> gets moduleDefinitions
   where
     findType defs =
       case fnDefByName of
-        [] -> error $ "Undefined function: " ++ show nm
-        [fn] -> PointerType (typeOf fn) (AddrSpace 0)
-        _ -> error $ "Ambiguous function name: " ++ show nm
+        [fn] -> Just fn
+        _ -> Nothing
       where
         globalDefs = [g | GlobalDefinition g <- defs]
         fnDefByName = [f | f@Function {name = nm'} <- globalDefs, nm' == nm]
 
-callableFnPtr :: Name -> LLVM Operand
+callableFnPtr :: Name -> Codegen Operand
 callableFnPtr nm = do
   ptr <- fnPtr nm
-  return $ ConstantOperand (global ptr nm)
+  let ptr' = case ptr of
+        Nothing -> error ("Function not defined" <> show nm)
+        Just ptr -> ptr
+  return $ ConstantOperand (global ptr' nm)
 
 globalStringPtr ::
-  Name         -- ^ Variable name of the pointer
+  ShortByteString         -- ^ Variable name of the pointer
   -> String       -- ^ The string to generate
-  -> LLVM C.Constant
+  -> Codegen Operand
 globalStringPtr nm str = do
   let asciiVals = map (fromIntegral . ord) str
       llvmVals  = map (C.Int 8) (asciiVals ++ [0]) -- append null terminator
       char      = IntegerType 8
       charArray = C.Array char llvmVals
       ty        = LLVM.AST.Typed.typeOf charArray
-  addDefn $ GlobalDefinition globalVariableDefaults
-    { name                  = nm
+
+  namesupply <- gets names
+  let (name, namesupply') = uniqueName nm namesupply
+  modify $ \s -> s {names = namesupply'}
+
+
+  Codegen $ lift $ addDefn $ GlobalDefinition globalVariableDefaults
+    { name                  = Name name
     , LLVM.AST.Global.type' = ty
     , linkage               = L.External
     , isConstant            = True
     , initializer           = Just charArray
     , unnamedAddr           = Just GlobalAddr
     }
-  return $ C.GetElementPtr True
-                           (C.GlobalReference (ptr ty) nm)
+
+  return $ ConstantOperand $ C.GetElementPtr True
+                           (C.GlobalReference (ptr ty) (Name nm))
                            [C.Int 32 0, C.Int 32 0]
 
 declare ::  Global -> LLVM ()
@@ -237,15 +389,15 @@ declarePrims = mapM_ go primsAndAritys
     go :: (ByteString, [Int]) -> LLVM ()
     go (pn, [arity]) =
       forM_ [pn, "apply_" <> pn] $ \pn' ->
-        declare $ decl sobj pn' (primArgList arity)
+        declare $ decl sobjPtr pn' (primArgList arity)
     go (pn, aritys@[_, _]) =
       forM_ aritys $ \arity ->
       forM_ [pn, "apply_" <> pn] $ \pn' ->
-        declare $ decl sobj (pn' <> fromString (show arity)) (primArgList arity)
+        declare $ decl sobjPtr (pn' <> fromString (show arity)) (primArgList arity)
     go _ = error "invalid aritys of primitve function"
 
 declareConstInits :: LLVM ()
-declareConstInits = mapM_ (\(n, argtype) -> declare $ decl sobj n (singletonArg argtype)) consts
+declareConstInits = mapM_ (\(n, argtype) -> declare $ decl sobjPtr n (singletonArg argtype)) consts
 
 declareHelper :: LLVM ()
 declareHelper = mapM_ (\(ret, name, args) -> declare $ decl ret name args) helper
@@ -369,17 +521,23 @@ current = do
 -- Sybol Table
 -------------------------------------------------------------------------------
 
-assign :: ShortByteString -> Operand -> Codegen ()
+assign :: ToLLVMName name => name -> Operand -> Codegen ()
 assign var x = do
   lcls <- gets symtab
-  modify $ \s -> s {symtab = (var, x) : lcls}
+  modify $ \s -> s {symtab = (toName var, x) : lcls}
 
-getvar :: ShortByteString -> Codegen Operand
+unassign :: ToLLVMName name => name -> Codegen ()
+unassign var = do
+  lcls <- gets symtab
+  let lcls' = [(n, e) | (n, e) <- lcls, n /= toName var ]
+  modify $ \s -> s {symtab = lcls'}
+
+getvar :: ToLLVMName name => name -> Codegen Operand
 getvar var = do
   syms <- gets symtab
-  case lookup var syms of
+  case lookup (toName var) syms of
     Just x -> return x
-    Nothing -> error $ "Local variable not in scope: " ++ show var
+    Nothing -> error $ "Local variable not in scope: " ++ show (toName var)
 
 -------------------------------------------------------------------------------
 -- References
@@ -398,9 +556,6 @@ global = C.GlobalReference
 toArgs :: [Operand] -> [(Operand, [A.ParameterAttribute])]
 toArgs = map (,[])
 
-uitofp :: Type -> Operand -> Codegen Operand
-uitofp ty a = instr float $ UIToFP a ty []
-
 const :: C.Constant -> Operand
 const = ConstantOperand
 
@@ -415,28 +570,33 @@ charC c = const $ C.Int 8 (toInteger $ ord c)
 
 
 -------------------------------------------------------------------------------
--- Effects
+-- Instructions
 -------------------------------------------------------------------------------
 
 call :: Operand -> [Operand] -> Codegen Operand
 call fn args = instr sobjPtr $ Call Nothing CC.Fast [] (Right fn) (toArgs args) [] []
 
+uitofp :: Type -> Operand -> Codegen Operand
+uitofp ty a = instr funTy $ UIToFP a ty []
+
+fptoui :: Type -> Operand -> Codegen Operand
+fptoui ty a = instr i64 $ FPToUI a ty []
 
 -------------------------------------------------------------------------------
--- Control Flow
+-- Control Flow Instructions
 -------------------------------------------------------------------------------
 
 br :: Name -> Codegen (Named Terminator)
 br val = terminator $ Do $ Br val []
 
+trunc :: Type -> Operand -> Codegen Operand
+trunc ty op = instr i1 $ Trunc op ty []
+
 cbr :: Operand -> Name -> Name -> Codegen (Named Terminator)
 cbr cond tr fl = terminator $ Do $ CondBr cond tr fl []
 
-phi :: Type -> [(Operand, Name)] -> Codegen Operand
-phi ty incoming = instr float $ Phi ty incoming []
+phi :: [(Operand, Name)] -> Codegen Operand
+phi incoming = instr sobjPtr $ Phi sobjPtr incoming []
 
 ret :: Operand -> Codegen (Named Terminator)
 ret val = terminator $ Do $ Ret (Just val) []
-
-retvoid :: Codegen (Named Terminator)
-retvoid = terminator $ Do $ Ret Nothing []

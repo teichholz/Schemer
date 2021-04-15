@@ -72,7 +72,7 @@ envAccess b newname al =
         x -> return x
 
 makeClosure :: Lambda UniqName -> [UniqName] -> Expr UniqName
-makeClosure lam ns = makeVectorFromList (ELam lam:fmap EVar ns)
+makeClosure lam ns = makeVectorFromList (ELam lam:fmap EVar ns++[ELit LitNil])
 
 
 closureConversion :: Expr UniqName -> Expr UniqName
