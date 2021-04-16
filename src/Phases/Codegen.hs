@@ -44,6 +44,12 @@ import LLVM (moduleLLVMAssembly)
 import Prelude (print)
 import LLVM.Prelude (putStrLn)
 import RIO.ByteString (putStr)
+import LLVM.Target (withHostTargetMachine)
+import LLVM.Relocation as Relocation (Model(PIC))
+import LLVM.CodeModel as Model (Model(Default, Large))
+import LLVM.CodeGenOpt as CodeOpt (Level(Default))
+import LLVM.Module (File(File))
+import LLVM.Module (writeObjectToFile)
 
 transform :: ScEnv ()
 transform = do
@@ -60,13 +66,18 @@ transform = do
 -- Codegen
 -------------------------------------------------------------------------------
 
+
+
 go :: [Proc UniqName] -> ScEnv Module
-go procs =
+go procs = do
+  objectFilePath <- asks _outputFile
   liftIO $ withContext $ \context ->
     withModuleFromAST context newast $ \m -> do
-      llstr <- moduleLLVMAssembly m
-      putStr llstr
-      return newast
+      withHostTargetMachine Relocation.PIC Model.Default CodeOpt.Default $ \target -> do
+        llstr <- moduleLLVMAssembly m
+        putStr $ llstr <> "\n"
+        writeObjectToFile target objectFilePath m
+        return newast
   where
     modn = initModule >> mapM codegen procs
     newast = runLLVM modn
@@ -98,6 +109,7 @@ codegenExpr e = case e  of
   EIf tst thn els -> cond tst thn els
   EApp (AppPrim pn es) -> primCall pn es
   EApp (AppLam e es) -> closureCall e es
+  _ -> error "wrong Expr"
   where
     literal :: Literal -> Codegen Operand
     literal (LitInt int) = do
@@ -144,7 +156,10 @@ codegenExpr e = case e  of
       maybeFnPtr <- fnPtr name
       case maybeFnPtr of
         Nothing -> getvar un
-        Just fn -> fptoui i64 (const $ global fn name)
+        Just fn -> do
+          ui <- ptrToInt i64 (const $ global fn name)
+          fn <- callableFnPtr "const_init_int"
+          call fn [ui]
 
     cond :: Expr UniqName -> Expr UniqName -> Expr UniqName -> Codegen Operand
     cond tst thn els = do
@@ -193,7 +208,7 @@ codegenExpr e = case e  of
 
       getIPtr <- callableFnPtr "closure_get_iptr"
       iptr <- call getIPtr [clo]
-      fptr <- uitofp iptr
+      fptr <- intToPtr iptr
 
       args <- mapM codegenExpr args
       call fptr (clo:args)
@@ -312,6 +327,7 @@ decl ret label argtys =
     name        = toName label
   , parameters  = ([Parameter ty nm [] | (ty, nm) <- argtys], False)
   , returnType  = ret
+  , LLVM.AST.Global.callingConvention = CC.Fast
   }
 
 addDefn :: Definition -> LLVM ()
@@ -580,11 +596,11 @@ charC c = const $ C.Int 8 (toInteger $ ord c)
 call :: Operand -> [Operand] -> Codegen Operand
 call fn args = instr sobjPtr $ Call Nothing CC.Fast [] (Right fn) (toArgs args) [] []
 
-uitofp ::  Operand -> Codegen Operand
-uitofp a = instr funTyPtr $ UIToFP a funTyPtr []
+intToPtr ::  Operand -> Codegen Operand
+intToPtr a = instr funTyPtr $ IntToPtr a funTyPtr []
 
-fptoui :: Type -> Operand -> Codegen Operand
-fptoui ty a = instr i64 $ FPToUI a ty []
+ptrToInt :: Type -> Operand -> Codegen Operand
+ptrToInt ty a = instr i64 $ PtrToInt a ty []
 
 -------------------------------------------------------------------------------
 -- Control Flow Instructions

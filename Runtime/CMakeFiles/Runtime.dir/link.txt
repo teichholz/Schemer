@@ -1,0 +1,2 @@
+/nix/store/rqfgki7ck1bxqhk3hd7wziqhahjadfbj-binutils-2.35.1/bin/ar qc libRuntime.a CMakeFiles/Runtime.dir/library.cpp.o CMakeFiles/Runtime.dir/test.cpp.o
+/nix/store/rqfgki7ck1bxqhk3hd7wziqhahjadfbj-binutils-2.35.1/bin/ranlib libRuntime.a

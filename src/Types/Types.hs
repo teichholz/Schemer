@@ -20,6 +20,7 @@ import qualified RIO.Set as S
 import qualified Data.Text as T
 import Data.Data (cast)
 import Data.Foldable
+import LLVM (File(File))
 
 
 -- Main datatype as a: ReaderT Env IO a
@@ -32,6 +33,7 @@ data Env = Env
   , _procs :: SomeRef [Proc UniqName]
   , _options :: Options -- CLI options / arguments
   , _name :: String -- Name of this awesome compiler
+  , _outputFile :: File
   , _logF :: LogFunc -- Logger (RIO)
   }
 

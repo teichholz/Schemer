@@ -20,10 +20,11 @@ import qualified Phases.Closure as Clo
 import qualified Phases.Codegen as Cod
 
 import Prelude (print)
+import LLVM (File(File))
 
 
 phases :: [ScEnv ()]
-phases = [Top.transform, Sim.transform, ANF.transform, {- CPS.transform, -} Ass.transform, Uni.transform, Clo.transform, Cod.transform]
+phases = [Top.transform, Sim.transform, ANF.transform, CPS.transform, Ass.transform, Uni.transform, Clo.transform, Cod.transform]
 
 compileAction :: ScEnv ()
 compileAction = foldl1 (>>) phases
@@ -68,5 +69,8 @@ runApp sf top opts = do
             , _procs = procsRef
             , _options = opts
             , _name = "Schemer"
+            , _outputFile = File "./../code.o"
             , _logF = logFunc }
     runRIO state compileAction
+
+

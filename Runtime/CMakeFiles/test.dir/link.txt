@@ -1,0 +1,1 @@
+/nix/store/gk099cfff3s1g01adgvsn3957zabppvw-gcc-wrapper-10.2.0/bin/g++ -g CMakeFiles/test.dir/test.cpp.o -o test 
