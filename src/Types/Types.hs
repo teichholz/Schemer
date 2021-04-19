@@ -1,4 +1,3 @@
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -268,38 +267,29 @@ descendLetM f e = case e of
     liftA2 Let newpatlist newbodyKind
 
 
-
 -------------------------------------------------------------------------------
 -- Free vars calculation
 -------------------------------------------------------------------------------
-class FreeVars e a | e -> a where
-  fv :: e -> S.Set a
 
-instance (FreeVars e a, Ord a) => FreeVars [e] a where
-  fv = S.unions . fmap fv
+class FreeVars e where
+  fv :: Ord a => e a -> S.Set a
 
-instance FreeVars Name Name where
-  fv = S.singleton
-
-instance FreeVars UniqName UniqName where
-  fv = S.singleton
-
-instance (FreeVars a a, Ord a) => FreeVars (ScSyn a) a where
+instance FreeVars ScSyn where
   fv (ScDecl d) = fv d
   fv (ScExpr e) = fv e
 
-instance (FreeVars a a, Ord a) => FreeVars (Body a) a where
-  fv (Body b) = fv b
+instance FreeVars Body where
+  fv (Body b) = S.unions $ fmap fv b
 
-instance (Ord a, FreeVars a a) => FreeVars (Decl a) a where
-  fv (FunDecl _ ps b) = fv ps  S.\\ fv b
-  fv (FunDotDecl _ ps p b) = fv (p:ps) S.\\ fv b
-  fv (FunListDecl _ p b) = fv p S.\\ fv b
+instance FreeVars Decl where
+  fv (FunDecl _ ps b) = fv b S.\\ S.unions (fmap S.singleton ps)
+  fv (FunDotDecl _ ps p b) = fv b S.\\ S.unions (fmap S.singleton (p:ps))
+  fv (FunListDecl _ p b) = fv b S.\\ S.singleton p
   fv (VarDecl _ e) = fv e
 
-instance (FreeVars a a, Ord a) => FreeVars (Expr a) a where
+instance FreeVars Expr where
   fv (EApp app) = fv app
-  fv (EVar name) = fv name
+  fv (EVar name) = S.singleton name
   fv (ELam lam) = fv lam
   fv (ELet lt) = fv lt
   fv (EIf tst thn els) = S.unions [fv tst, fv thn, fv els]
@@ -308,21 +298,21 @@ instance (FreeVars a a, Ord a) => FreeVars (Expr a) a where
   fv (ECallCC e) = fv e
   fv (ELit _) = S.empty
 
-instance (FreeVars a a, Ord a) => FreeVars (Apply a) a where
+instance FreeVars Apply where
   fv (ApplyPrim _ e) = fv e
   fv (ApplyLam e1 e2) = fv e1 `S.union` fv e2
 
-instance (FreeVars a a, Ord a) => FreeVars (Application a) a where
-  fv (AppPrim _ es) = fv es
-  fv (AppLam e es) = fv e `S.union` fv es
+instance FreeVars Application where
+  fv (AppPrim _ es) = S.unions (fmap fv es)
+  fv (AppLam e es) = fv e `S.union` S.unions (fmap fv es)
 
-instance (Ord a, FreeVars a a) => FreeVars (Lambda a) a where
-  fv (Lam ps b) = fv ps  S.\\ fv b
-  fv (LamDot (ps, p) b) = fv (p:ps) S.\\ fv b
-  fv (LamList p b) = fv p S.\\ fv b
+instance FreeVars Lambda where
+  fv (Lam ps b) =  fv b S.\\ S.unions (fmap S.singleton ps)
+  fv (LamDot (ps, p) b) =  fv b S.\\ S.unions (fmap S.singleton (p:ps))
+  fv (LamList p b) = fv b S.\\ S.singleton p
 
-instance (Ord a, FreeVars a a) => FreeVars (Let a) a where
-  fv (Let bind body) = fv (fst <$> bind) S.\\ fv body `S.union` fv (snd <$> bind)
+instance FreeVars Let where
+  fv (Let [(var, exp)] body) = (fv body S.\\ S.singleton var) `S.union` fv exp
 
 -------------------------------------------------------------------------------
 -- All vars calculation
@@ -340,10 +330,7 @@ av = foldl go S.empty
 -------------------------------------------------------------------------------
 
 data UniqName = UName Name Int
-  deriving (Show, Eq)
-
-instance Ord UniqName where
-  (UName _ i) <= (UName _ i') = i <= i'
+  deriving (Show, Eq, Ord)
 
 type NameMap = M.Map Name UniqName
 type Counter = Int
@@ -376,9 +363,13 @@ callWithAlphaM f = fmap unAlpha . f . runAlpha
 class Alphatization e where
   alpha :: e Name -> State (Counter, NameMap) (e UniqName)
 
-instance Alphatization Proc where
-  alpha (Proc (name, expr)) =
-    fmap (\e -> Proc (makeUniqName name 0, e)) (alpha expr)
+-- Use -1 as part of the UniqName, if the name is free in the whole ast. This should only happen for primnames in identifier positions.
+getUN :: Name -> State (Counter, NameMap) UniqName
+getUN n = do
+  map <- gets snd
+  let muniq = n `M.lookup` map
+      uniq = fromMaybe (makeUniqName n (-1)) muniq
+  return uniq
 
 instance Alphatization ScSyn where
   alpha (ScExpr e) = ScExpr <$> alpha e
@@ -387,14 +378,12 @@ instance Alphatization Expr where
   alpha (EApp app) = EApp <$> alpha app
   alpha (EIf tst thn els) = liftA3 EIf (alpha tst) (alpha thn) (alpha els)
   alpha (EVar n) = do
-    map <- gets snd
-    let uniq = map MP.! n
+    uniq <- getUN n
     return $ EVar uniq
   alpha (ELam lam) = ELam <$> alpha lam
   alpha (ELet lt) = ELet <$> alpha lt
   alpha (ESet n e) = do
-    map <- gets snd
-    let uniq = map MP.! n
+    uniq <- getUN n
     ESet uniq <$> alpha e
   alpha (EApply apply) = EApply <$> alpha apply
   alpha (ECallCC e) = ECallCC <$> alpha e
@@ -413,13 +402,14 @@ instance Alphatization Body where
 
 instance Alphatization Let where
   alpha (Let [(n, e)] b) = do
+    e' <- alpha e
     (cnt, map) <- get
     let uniq = makeUniqName n cnt
         newmap = addUniqName n uniq map
-    let newbind = (mapM . mapM) alpha [(uniq, e)]
-        newbody = alpha b
+        newbind = [(uniq, e')]
     put (cnt + 1, newmap)
-    liftA2 Let newbind newbody
+    b' <- alpha b
+    return $ Let newbind b'
 
 instance Alphatization Lambda where
   alpha (Lam ps b) = do

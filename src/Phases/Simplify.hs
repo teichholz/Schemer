@@ -75,7 +75,7 @@ lambdad2lambdal = \case
     go :: Lambda Name -> EN
     go = \case
       LamDot (args, dotarg) body -> do
-        let lamlarg = makeUniqueName (dotarg <> "'") dotarg
+        let lamlarg = makeUniqueName (dotarg <> "'") body
         let binding = toBinding $ evalState (go' (toExpr lamlarg) (args, dotarg)) (id, [])
         makeLamList lamlarg (makeLet binding body)
       x -> toExpr x
@@ -114,7 +114,7 @@ sequenceBody = \case
       let uniqName = makeUniqueName "seqbody" send in
         makeLet (uniqName, toExpr s) send
     go (s:ss) = do
-      let uniqName = makeUniqueName "seqbody" ss in
+      let uniqName = makeUniqueName "seqbody" (toBody ss) in
         makeLet (uniqName, toExpr s) $ go ss
     seq :: Body Name -> Body Name
     seq b =

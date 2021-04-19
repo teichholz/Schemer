@@ -90,8 +90,14 @@ parseAtom = \case
   Atom x | isIdent x -> parseIdent x
   x -> ELit <$> parseLit x
 
+-- This is eta-abstraction over identifier which actually are primitives. Consider: (let ((x display)) (x 2))
 parseIdent :: Text -> IO (Expr Name)
-parseIdent x = return $ makeVar (parseLiteral varLiteral x)
+parseIdent x = do
+  return $
+    if isPrim x then
+      makeLamList ("l" :: Name) (makePrimApply x (toExpr ("l" :: Name)))
+    else
+      makeVar (parseLiteral varLiteral x)
 
 parseLit :: Sexp -> IO Literal
 parseLit = \case
@@ -120,7 +126,7 @@ parseLambda = \case
     case args of
       Normal args ->  makeLam args <$> parseL body
       Dotted args arg -> makeLamDot args arg <$> parseL body
-  Atom arg:body -> makeLamList arg <$> parseL body
+  Atom arg:body -> makeLamList (toName arg) <$> parseL body
 
 
 parseArgs :: [Sexp] -> IO Args

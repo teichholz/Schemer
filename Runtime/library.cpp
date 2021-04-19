@@ -492,7 +492,7 @@ SObj *string_set(SObj *obj, SObj *k, SObj *ch) {
 //numbers
 
 
-void *arhelper(SObj *obj1, SObj *obj2, char op){
+void arhelper(SObj *obj1, SObj *obj2, char op){
     switch(obj2->type) {
         case Int:
             switch (obj1 -> type){
@@ -911,7 +911,7 @@ SObj *display(SObj *obj){
 }
 
 one_arg_fun(halt)
-SObj * halt(SObj *obj){
+SObj *halt(SObj *obj){
     display(obj);
     exit(0);
     return obj;
@@ -933,6 +933,9 @@ void display_aux(SObj *obj) {
         case String:
             printf("%s", _unwrap_string(obj));
             break;
+        case Symbol:
+            printf("%s", _unwrap_symbol(obj));
+            break;
         case Bool:
             printf("%s", (_unwrap_bool(obj))? "#t" : "#f");
             break;
@@ -943,7 +946,7 @@ void display_aux(SObj *obj) {
             display_cons(obj);
             break;
         case Nil:
-            printf("()");
+            printf("'()");
             break;
         case Vector:
             display_vec(obj);
@@ -960,7 +963,7 @@ SObj *display_cons(SObj *cons) {
     SObj *first = car(cons);
     SObj *rest = cdr(cons);
 
-    printf("(");
+    printf("'(");
     display_aux(first);
     while(rest->type == Cons){
         first = car(rest);

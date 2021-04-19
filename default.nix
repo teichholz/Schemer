@@ -1,5 +1,5 @@
 with import <nixpkgs> {};
-stdenv.mkDerivation {
+mkShell {
   name = "env";
   nativeBuildInputs = [ cmake ];
   buildInputs = [ boehmgc ];

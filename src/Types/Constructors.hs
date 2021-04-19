@@ -164,6 +164,9 @@ instance ToName Text where
 instance IsString (Expr Name) where
   fromString = toExpr . toName
 
+instance IsString UniqName where
+  fromString s = makeUniqName (toName s) (-1)
+
 instance IsString PrimName where
   fromString s = toPrimName $ (fromString s :: ByteString)
 
@@ -179,6 +182,9 @@ instance ToPrimName PrimName' where
 
 instance ToPrimName Name where
   toPrimName s = PName (s, NR.getCname s)
+
+instance ToPrimName UniqName where
+  toPrimName (UName s _) = PName (s, NR.getCname s)
 
 instance ToPrimName Text where
   toPrimName = toPrimName . toName
@@ -211,15 +217,15 @@ makeLam names b = toExpr $ Lam  names (toBody b)
 makeLamDot :: (ToBody b Name, ToName n, ToName n2) => [n] -> n2 -> b -> Expr Name
 makeLamDot names name b = toExpr $ LamDot (toName <$> names, toName name) (toBody b)
 
-makeLamList :: (ToBody b Name, ToName n) => n -> b -> Expr Name
-makeLamList name b = toExpr $ LamList (toName name) (toBody b)
+makeLamList :: ToBody b n => n -> b -> Expr n
+makeLamList name b = toExpr $ LamList name (toBody b)
 
 -- -- prepends the newarg variable to the argument list
-extendLamList :: (ToName n, ToExpr n Name, ToBody b Name) => n -> n -> b -> Expr Name
+extendLamList :: (ToExpr n n, ToBody b n) => n -> n -> b -> Expr n
 extendLamList newarg oldarg body =
   makeLamList oldarg
-    (makeLet (toName newarg, car $ toExpr oldarg)
-      (makeLet (toName oldarg, cdr $ toExpr oldarg) (toBody body)))
+    (makeLet (newarg, car $ toExpr oldarg)
+      (makeLet (oldarg, cdr $ toExpr oldarg) (toBody body)))
 
 makeFunDecl :: (ToBody b Name, ToName n, ToName n2) => n -> [n2] -> b -> Decl Name
 makeFunDecl n ps b = FunDecl (toName n) (toName <$> ps) $ toBody b
@@ -342,7 +348,7 @@ isLamApp _ = False
 makeName' :: ByteString -> Int -> Name
 makeName' s i = toName $ s <> fromString (show i)
 
-makeUniqueName :: (FreeVars e Name) => ByteString -> e -> Name
+makeUniqueName :: FreeVars e => ByteString -> e Name -> Name
 makeUniqueName n e =
   let frees =  fv e in
     if S.null frees then
@@ -351,7 +357,16 @@ makeUniqueName n e =
       toName $ head $ filter (\n -> not $ S.member n frees)
                              (fmap (makeName' n) [0..])
 
-makeGloballyUniqueName :: (Foldable e, Functor e, FreeVars (e Name) Name, FreeVars (e UniqName) UniqName) => Name -> e UniqName -> UniqName
+makeUniqueName' :: FreeVars e => ByteString -> [e Name] -> Name
+makeUniqueName' n e =
+  let frees = S.unions (fmap fv e) in
+    if S.null frees then
+      toName n
+    else
+      toName $ head $ filter (\n -> not $ S.member n frees)
+                             (fmap (makeName' n) [0..])
+
+makeGloballyUniqueName :: (Foldable e, Functor e, FreeVars e) => Name -> e UniqName -> UniqName
 makeGloballyUniqueName n e =
   let frees =  fv e
       n' = makeUniqueName n (unAlpha e)

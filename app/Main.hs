@@ -21,6 +21,7 @@ import qualified Phases.Codegen as Cod
 
 import Prelude (print)
 import LLVM (File(File))
+import System.IO (putStrLn)
 
 
 phases :: [ScEnv ()]
@@ -47,9 +48,9 @@ main = do
     Left err ->
       print err
     Right sxps -> do
+      forM_ sxps (putStrLn . show)
       syns <- mapM ScSynParser.runParser sxps
       runApp srcfile syns opts
-      -- forM_ syns (print . pretty)
 
 runApp :: SourceFile -- ^ Source
   -> [SynN] -- ^ Toplevel Scheme syntax made of declarations and expressions

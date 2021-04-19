@@ -53,6 +53,7 @@ hoist e =
         return $ toExpr procname
       e -> return e
 
+-- FIXME not properly working with example lambda5
 envAccess :: Body UniqName -> UniqName -> [(UniqName, Int)] -> Body UniqName
 envAccess b newname al =
   runReader (descendBodyM (makeMap f) b) (M.fromList al)

@@ -92,6 +92,7 @@ unify e = case e of
         b' = getVarsFromList al newname b in
       ELam  (Lam [newname] b')
 
+
   e -> e
 
 getVarsFromList :: [(UniqName, Int)]

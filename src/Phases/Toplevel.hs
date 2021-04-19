@@ -35,10 +35,10 @@ transform = do
 
 -- getDecls -> map decl2Bind -> makeRecBindings
 body2Rec :: Body Name -> Expr Name
-body2Rec oldBody = makeRecBindings (decl2bind <$> getDecls oldBody) (toBody $ getExprs oldBody)
+body2Rec oldBody = makeRecBinding (decl2bind <$> getDecls oldBody) (toBody $ getExprs oldBody)
 
-makeRecBindings :: [(Name, Expr Name)] -> Body Name -> Expr Name
-makeRecBindings bindings body =
+makeRecBinding :: [(Name, Expr Name)] -> Body Name -> Expr Name
+makeRecBinding bindings body =
   let bindings' =
         if null bindings
         then [(makeUniqueName "toplevel" body, toExpr makeUnspecified)]

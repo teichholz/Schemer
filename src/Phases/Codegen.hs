@@ -109,7 +109,7 @@ codegenExpr e = case e  of
   EIf tst thn els -> cond tst thn els
   EApp (AppPrim pn es) -> primCall pn es
   EApp (AppLam e es) -> closureCall e es
-  _ -> error "wrong Expr"
+  e -> trace (fromString $ show e) (error "wrong Expr")
   where
     literal :: Literal -> Codegen Operand
     literal (LitInt int) = do

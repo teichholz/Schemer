@@ -21,7 +21,6 @@ transform = do
   writeSomeRef astref ast'
   return ()
 
-
 callcc :: Expr Name
 callcc = makeLam ["cc" :: Name, "f"]
            (makeLamApp ("f" :: Expr Name)
@@ -86,7 +85,7 @@ t e c = case e of
   -- Expressions in return posititon
   -- add cont to the argument list
   EApply (ApplyLam e1 e2) -> do
-    let lst = makeUniqueName "applylistwithcont" [e1, e2]
+    let lst = makeUniqueName "applylistwithcont" (toBody [e1, e2])
     makeLet
       (lst, makePrimApp ("cons" :: PrimName) [c, tAe e2])
       (makeLamApply (tAe e1) (toExpr lst))
@@ -114,5 +113,5 @@ go = toSyn . go' . toExpr
     go' :: Expr Name -> Expr Name
     go' e = do
       makeLet
-        ("display" :: Name, makeLam ["final" :: Name] [makePrimApp ("halt" :: PrimName') ["final" :: Expr Name]])
-        (t e ("display" :: Expr Name))
+        ("halt-and-display" :: Name, makeLam ["final" :: Name] [makePrimApp ("halt" :: PrimName') ["final" :: Expr Name]])
+        (t e ("halt-and-display" :: Expr Name))

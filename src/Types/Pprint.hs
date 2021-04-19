@@ -75,7 +75,7 @@ instance Pretty Literal where
       getChar ' ' = "#\\" <> "space"
       getChar '\n' = "#\\" <> "newline"
       getChar c = snoc "#\\" c
-  pretty (LitString str) = inQuotes $ unsafeViaShow str
+  pretty (LitString str) = inQuotes $ pretty str
   pretty (LitSymbol sym) = pretty sym
   pretty (LitList list) = quoted $ mkList $ pretty <$> list
   pretty LitNil = quoted $ inParens emptyDoc

@@ -36,13 +36,19 @@ lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
 
 atom :: Parser Sexp
-atom = Atom <$> lexeme rawAtom
+atom = Atom <$> lexeme (stringAtom <|> rawAtom) -- stringAtom has higher precedence than rawAtom
 
 rawAtom :: Parser Text
 rawAtom = takeWhile1P (Just "S-expression atom character") isAtom
 
+stringAtom :: Parser Text
+stringAtom = char '\"' *> fmap (("\"" <>) . (<> "\"")) (takeWhileP (Just "S-expression string character") isStringAtom) <* char '\"'
+
 isAtom :: Char -> Bool
 isAtom = (`notElem` ['\n', '\t', '(', ')', ' '])
+
+isStringAtom :: Char -> Bool
+isStringAtom = (`notElem` ['\n', '\"'])
 
 list :: Parser Sexp -> Parser Sexp
 list ps = List <$> parens (M.some ps)

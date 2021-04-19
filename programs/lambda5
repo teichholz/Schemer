@@ -1,2 +1,2 @@
-(let ((plus (lambda (x y) (+ x y))))
+(let ((plus (lambda (x y) (display 42) (+ x y))))
   (plus 1 2))

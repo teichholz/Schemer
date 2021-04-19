@@ -7,7 +7,7 @@ module Utils.NameResolver (getCname, isPrim, isOverloaded, isVariadic, primsAndA
 
 import RIO
 import RIO.ByteString
-import Types.Types (Name, PrimName(..))
+import Types.Types (Name, PrimName(..), UniqName (UName))
 import Data.List as L
 import Data.Maybe as M
 
@@ -47,6 +47,9 @@ class IsVarName a where
 
 instance IsVarName Name where
   getName = id
+
+instance IsVarName UniqName where
+  getName (UName n _) = n
 
 instance IsVarName Text where
   getName = encodeUtf8
