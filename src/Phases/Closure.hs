@@ -65,7 +65,7 @@ envAccess b newname al =
           let pair = M.lookup n map
           if isJust pair then do
             let (Just i) = pair
-            return $ vectorRef (toExpr newname) (i + 1)
+            return $ vectorRef (toExpr newname) i
           else do
             return e
 

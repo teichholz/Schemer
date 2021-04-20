@@ -1,4 +1,4 @@
-(let ((x 42) (y 43))
-  (set! x 42)
-  (set! y 42)
+(let ((x 42) (y 82))
+  (set! x 84)
+  (set! y 102)
   (display x))

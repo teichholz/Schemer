@@ -24,12 +24,23 @@ extern "C" {
         // auto cns = cons(const_init_int(1), cons(const_init_int(2), nil));
         // halt(plus1(cns));
 
-        auto vec = make_vector2(const_init_int(1), const_init_int(42));
-        auto vec2 = make_vector2(const_init_int(1), const_init_int(102));
-        vector_set(vec, const_init_int(0), const_init_int(21));
-        vector_set(vec2, const_init_int(0), const_init_int(122));
-        auto num = vector_ref(vec, const_init_int(0));
-        display(num);
+        // auto vec = make_vector2(const_init_int(1), const_init_int(42));
+        // auto vec2 = make_vector2(const_init_int(1), const_init_int(102));
+        // vector_set(vec, const_init_int(0), const_init_int(21));
+        // vector_set(vec2, const_init_int(0), const_init_int(122));
+        // auto num = vector_ref(vec, const_init_int(0));
+        // display(num);
+
+        auto list = cons(const_init_int(1), cons(const_init_int(2), get_nil()));
+        auto vec = list2vector(list);
+
+        auto clo = closure_create(vec);
+        auto size = clo->content.Closure.vector->content.Vector.size;
+        printf("len: %d", size);
+        auto ref = vector_ref(clo, const_init_int(0));
+        display(ref);
+
+
 
         return 0;
     }

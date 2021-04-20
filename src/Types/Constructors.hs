@@ -6,16 +6,15 @@
 -- |
 {-# LANGUAGE FlexibleInstances #-}
 
-{-# LANGUAGE MultiParamTypeClasses #-}
+
 
 module Types.Constructors where
 
 import RIO
 import Types.Types
 import qualified Utils.NameResolver as NR
-import RIO.List.Partial (head)
+import RIO.List.Partial ( head, foldr1 )
 import RIO.Lens as L
-import RIO.List.Partial (foldr1)
 import qualified RIO.Set as S
 import qualified RIO.Text
 import qualified Data.Text as T
@@ -168,7 +167,7 @@ instance IsString UniqName where
   fromString s = makeUniqName (toName s) (-1)
 
 instance IsString PrimName where
-  fromString s = toPrimName $ (fromString s :: ByteString)
+  fromString s = toPrimName (fromString s :: ByteString)
 
 instance IsString PrimName' where
   fromString = PName' . fromString
@@ -348,29 +347,30 @@ isLamApp _ = False
 makeName' :: ByteString -> Int -> Name
 makeName' s i = toName $ s <> fromString (show i)
 
-makeUniqueName :: FreeVars e => ByteString -> e Name -> Name
+
+makeUniqueName :: Foldable e => ByteString -> e Name -> Name
 makeUniqueName n e =
-  let frees =  fv e in
-    if S.null frees then
+  let vars =  av e in
+    if S.null vars then
       toName n
     else
-      toName $ head $ filter (\n -> not $ S.member n frees)
+      toName $ head $ filter (\n -> not $ S.member n vars)
                              (fmap (makeName' n) [0..])
 
-makeUniqueName' :: FreeVars e => ByteString -> [e Name] -> Name
+makeUniqueName' :: Foldable e => ByteString -> [e Name] -> Name
 makeUniqueName' n e =
-  let frees = S.unions (fmap fv e) in
-    if S.null frees then
+  let vars = S.unions (fmap av e) in
+    if S.null vars then
       toName n
     else
-      toName $ head $ filter (\n -> not $ S.member n frees)
+      toName $ head $ filter (\n -> not $ S.member n vars)
                              (fmap (makeName' n) [0..])
 
-makeGloballyUniqueName :: (Foldable e, Functor e, FreeVars e) => Name -> e UniqName -> UniqName
+makeGloballyUniqueName :: (Foldable e, Functor e) => Name -> e UniqName -> UniqName
 makeGloballyUniqueName n e =
-  let frees =  fv e
+  let vars =  av e
       n' = makeUniqueName n (unAlpha e)
       low = succ $ indexOfUniqName (maximum e)
   in
-     head $ filter (\n -> not $ S.member n frees)
+     head $ filter (\n -> not $ S.member n vars)
                    (fmap (makeUniqName n') [low..])

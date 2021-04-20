@@ -891,7 +891,7 @@ SObj *vector_ref(SObj *vec, SObj *k) {
 
     SObj *content = unwrap_vec(clo_or_vec, "vector-ref");
     s64 index = unwrap_int(k, "vector-ref");
-    if(index >= 0 && index < vec->content.Vector.size)
+    if(index >= 0 && index < clo_or_vec->content.Vector.size)
         return content + index;
     else
     fatal_errf("%s: index is out of bounds!", "vector-ref")
