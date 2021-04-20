@@ -313,6 +313,7 @@ instance FreeVars Lambda where
 
 instance FreeVars Let where
   fv (Let [(var, exp)] body) = (fv body S.\\ S.singleton var) `S.union` fv exp
+  fv (Let bs body) = (fv body S.\\ S.unions (fmap (S.singleton . fst) bs)) `S.union` S.unions (fmap (fv . snd) bs)
 
 -------------------------------------------------------------------------------
 -- All vars calculation

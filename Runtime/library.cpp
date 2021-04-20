@@ -8,11 +8,16 @@
 extern "C" {
 
 //INIT
+//
+
+const char *get_type_of_sobj(SObj *obj) {
+    const char *types[] = { "Nil", "Int", "Float", "Char", "String", "Bool", "Cons", "Symbol", "Vector", "Closure", "Undefined" };
+    return types[obj->type];
+}
 
 void ASSERT_TYPE(SObj *obj, SType ty, const char* msg, const char *fn) {
-    const char *types[] = { "Nil", "Int", "Float", "Char", "String", "Bool", "Cons", "Symbol", "Vector", "Closure", "Undefined" };
     if (obj->type != ty) {
-        type_errf(msg, fn, types[obj->type]);
+        type_errf(msg, fn, get_type_of_sobj(obj));
     }
 }
 
@@ -848,7 +853,7 @@ SObj *memv(SObj *obj, SObj *list){
 one_arg_fun(make_vector1)
 SObj *make_vector1(SObj *k) {
     s64 size = unwrap_int(k, "make-vector");
-    SObj *content = (SObj*) alloc_mem( size);
+    SObj *content = (SObj*) alloc_mem(size * sizeof(SObj));
     SObj *vec = alloc();
     vec->type = Vector;
     vec->content.Vector.size = size;
@@ -864,12 +869,12 @@ SObj *make_vector2(SObj *k, SObj *fill) {
     }
     return vec;
 }
-one_arg_vafun(make_vector)
-SObj *make_vector(SObj *list){
-    if(_unwrap_int(length(list)) == 1)
-        return apply_make_vector1(list);
-    else return  apply_make_vector2(list);
-}
+// one_arg_vafun(make_vector)
+// SObj *make_vector(SObj *list){
+//     if(_unwrap_int(length(list)) == 1)
+//         return apply_make_vector1(list);
+//     else return  apply_make_vector2(list);
+// }
 
 one_arg_fun(vector_length)
 SObj *vector_length(SObj *vec) {
@@ -877,7 +882,14 @@ SObj *vector_length(SObj *vec) {
 }
 two_arg_fun(vector_ref)
 SObj *vector_ref(SObj *vec, SObj *k) {
-    SObj *content = unwrap_vec(vec, "vector-ref");
+    SObj *clo_or_vec;
+    if (vec->type == Closure) {
+        clo_or_vec = vec->content.Closure.vector;
+    } else {
+        clo_or_vec = vec;
+    }
+
+    SObj *content = unwrap_vec(clo_or_vec, "vector-ref");
     s64 index = unwrap_int(k, "vector-ref");
     if(index >= 0 && index < vec->content.Vector.size)
         return content + index;

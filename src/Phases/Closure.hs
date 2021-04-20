@@ -53,7 +53,6 @@ hoist e =
         return $ toExpr procname
       e -> return e
 
--- FIXME not properly working with example lambda5
 envAccess :: Body UniqName -> UniqName -> [(UniqName, Int)] -> Body UniqName
 envAccess b newname al =
   runReader (descendBodyM (makeMap f) b) (M.fromList al)
@@ -66,7 +65,7 @@ envAccess b newname al =
           let pair = M.lookup n map
           if isJust pair then do
             let (Just i) = pair
-            return $ vectorRef (toExpr newname) i
+            return $ vectorRef (toExpr newname) (i + 1)
           else do
             return e
 
