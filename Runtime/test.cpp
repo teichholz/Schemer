@@ -31,15 +31,25 @@ extern "C" {
         // auto num = vector_ref(vec, const_init_int(0));
         // display(num);
 
-        auto list = cons(const_init_int(1), cons(const_init_int(2), get_nil()));
-        auto vec = list2vector(list);
+        // auto list = cons(const_init_int(1), cons(const_init_int(2), get_nil()));
+        // auto vec = list2vector(list);
 
-        auto clo = closure_create(vec);
-        auto size = clo->content.Closure.vector->content.Vector.size;
-        printf("len: %d", size);
-        auto ref = vector_ref(clo, const_init_int(0));
-        display(ref);
+        // auto clo = closure_create(vec);
+        // auto size = clo->content.Closure.vector->content.Vector.size;
+        // printf("len: %d", size);
+        // auto ref = vector_ref(clo, const_init_int(0));
+        // display(ref);
 
+        auto vec = make_vector2(const_init_int(1), get_unspecified());
+        auto vec2 = list2vector(cons(const_init_int(1), cons(vec, get_nil())));
+        vector_set(vec, const_init_int(0), vec2);
+
+        auto clo = vector_ref(vec, const_init_int(0));
+        auto clo2 = closure_create(clo);
+
+        auto val = vector_ref(clo2, const_init_int(0));
+
+        display(val);
 
 
         return 0;

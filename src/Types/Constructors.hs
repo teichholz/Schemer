@@ -154,6 +154,9 @@ instance (ToName n, ToExpr e Name) => ToBinding [(n, e)] Name where
 instance ToName Name where
   toName = id
 
+instance ToName Int where
+  toName = fromString . show
+
 instance ToName String  where
   toName = fromString
 
@@ -350,12 +353,12 @@ makeName' s i = toName $ s <> fromString (show i)
 
 makeUniqueName :: Foldable e => ByteString -> e Name -> Name
 makeUniqueName n e =
-  let vars =  av e in
-    if S.null vars then
+  let vars = av e
+      notTakenP = \n -> not $ S.member n vars in
+    if notTakenP n then
       toName n
     else
-      toName $ head $ filter (\n -> not $ S.member n vars)
-                             (fmap (makeName' n) [0..])
+      toName $ head $ filter notTakenP (fmap (makeName' n) [0..])
 
 makeUniqueName' :: Foldable e => ByteString -> [e Name] -> Name
 makeUniqueName' n e =

@@ -56,6 +56,8 @@ transform = do
 
   logDebug $ "AST after unifiction:\n" <> display ast'
 
+  logDebug $ "AST with unique names after unifiction:\n" <> display (runAlpha ast')
+
   writeSomeRef astref ast'
   return ()
 
@@ -80,17 +82,17 @@ overload e = case e of
 unify :: Expr UniqName -> Expr UniqName
 unify e = case e of
   EApp (AppPrim pn es) | NR.isVariadic pn -> EApp $ AppPrim (PName ("", "apply_") <> pn) [makeConsList es]
-  EApp (AppLam e es) -> EApp (AppLam e [makeConsList es])
+  EApp (AppLam e (conte:es)) -> EApp (AppLam e (conte : [makeConsList es]))
 
   EApply (ApplyPrim pn e) -> EApp $ AppPrim (PName ("", "apply_") <> pn) [e]
   EApply (ApplyLam n e) -> EApp $ AppLam n [e]
 
   ELam (LamList p b) -> ELam (Lam [p] b)
-  ELam (Lam ps b) ->
+  ELam (Lam (contp:ps) b) ->
     let newname = makeGloballyUniqueName ("variadic" :: Name) b
         al = zip ps [0..]
         b' = getVarsFromList al newname b in
-      ELam  (Lam [newname] b')
+      ELam  (Lam [contp, newname] b')
 
 
   e -> e

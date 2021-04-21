@@ -1,5 +1,6 @@
-(letrec ((map (lambda (l f)
+(define map (lambda (l f)
              (if (> (length l) 0)
                (cons (f (car l)) (map (cdr l) f))
-               '()))))
-  (map '(1 2 3 4) (lambda (x) (+ x 1))))
+               '())))
+
+(map '(1 2 3 4) (lambda (x) (+ x 1)))

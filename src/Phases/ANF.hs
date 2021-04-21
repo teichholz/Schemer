@@ -13,7 +13,7 @@ import RIO
 import RIO.List.Partial (head)
 import RIO.State
 import Control.Monad.Cont hiding (Cont)
-import qualified Control.Monad.Cont as C (Cont)
+import qualified Control.Monad.Cont as C (Cont, ContT)
 import Types.Types
 import Types.Constructors
 import Types.Pprint
@@ -36,7 +36,8 @@ transform = do
 -- The Cont monad represents computations in continuation passing style.
 -- That is, we call a continuation with [Expr] as argument, which will itself produce an [Expr] based on the [Expr] argument.
 data K = Es [Expr Name] | E (Expr Name)
-type Cont = C.Cont K K
+type CTR = State Int
+type Cont = C.ContT K CTR K
 
 getE :: K -> Expr Name
 getE (E e) = e
@@ -51,11 +52,11 @@ isValue _ = False
 go :: ScSyn Name -> ScSyn Name
 go = toSyn . normalizeTerm . toExpr
 
-normalizeTermWith :: ToExpr e Name => e -> (K -> K) -> Expr Name
-normalizeTermWith e f = getE $ runCont (normalize e) f
+normalizeTermWith :: ToExpr e Name => e -> (K -> CTR K) -> Expr Name
+normalizeTermWith e f = let state = runContT (normalize e) f in  getE $ evalState state 0
 
 normalizeTerm :: ToExpr e Name => e -> Expr Name
-normalizeTerm e = normalizeTermWith e id
+normalizeTerm e = normalizeTermWith e return
 
 normalize :: ToExpr e Name => e -> Cont
 normalize e = case toExpr e of
@@ -69,7 +70,7 @@ normalize e = case toExpr e of
 
   ELet (Let [(n, eexpr)] body) -> do
       E n1 <- normalize eexpr
-      cont $ \k -> E $ makeLet (n, n1) (normalizeTermWith body k)
+      ContT $ \k -> return $ E $ makeLet (n, n1) (normalizeTermWith body k)
 
   EIf tst thn els -> do
       E tst' <- normalizeName tst
@@ -100,13 +101,17 @@ normalize e = case toExpr e of
 
 normalizeName :: Expr Name -> Cont
 normalizeName e = do
-  let n' = makeUniqueName "anf" e
+  ctr <- get
+  modify (+1)
+  let n' = makeUniqueName ("anf" <> toName ctr) e
   E n <- normalize e
   if isValue n then
     return $ E n
   else do
     let var = toExpr n'
-    cont $ \k -> E $ makeLet (n', n) (getE $ k $ E var)
+    ContT $ \k -> do
+      E e <- k $ E var
+      return $ E $ makeLet (n', n) e
 
 normalizeNames :: [Expr Name] -> Cont
 normalizeNames es =

@@ -1,7 +1,7 @@
 (define (f x y)
-  (define (x y) (+ y 2))
   (+ x 2)
   (+ x y))
+
 (define (inc x) (+ x 1))
 
 (inc (f 1 2))

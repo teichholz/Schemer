@@ -46,7 +46,7 @@ go :: ScSyn Name -> (ScSyn Name, Mutated)
 go syn = runState (callWithAlphaM go' syn) S.empty
   where
     go' :: ScSyn UniqName -> SM (ScSyn UniqName)
-    go'= descendM (makeMap removeSet)
+    go' syn = descendM (makeMap mvs) syn >> descendM (makeMap removeSet) syn --This prepares the state with all mutated vars
 
 -- Wraps an expression in a vector, called Box
 makeBox :: Expr UniqName -> Expr UniqName
@@ -70,6 +70,12 @@ isMutated' m n = S.member n m
 add :: UniqName -> Mutated -> Mutated
 add = S.union . S.singleton
 
+mvs :: Expr UniqName -> SM (Expr UniqName)
+mvs e = case e of
+    ESet n _ -> do
+      modify (add n)
+      return e
+    _ -> return e
 
 removeSet :: Expr UniqName -> SM (Expr UniqName)
 removeSet e = do
@@ -77,8 +83,7 @@ removeSet e = do
   let isMutated = isMutated' ms
 
   case e of
-    ESet n _ -> do
-      modify (add n)
+    ESet _ _ -> do
       return $ makeBoxSet e
 
     ELet (Let [pat@(n, _)] b) | isMutated n -> do

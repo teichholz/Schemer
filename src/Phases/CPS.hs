@@ -64,6 +64,7 @@ t e c = case e of
                   EApply (ApplyPrim n e) -> makePrimApply n (tAe e)
                   ELam _ -> tAe rhs
                   ESet n e -> makeSet n (tAe e)
+                  ECallCC _ -> t rhs c
                   x -> x
 
     makeLet (lhs, rhs') (t (toExpr body) c)

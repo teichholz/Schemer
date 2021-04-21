@@ -377,7 +377,13 @@ instance Alphatization ScSyn where
 
 instance Alphatization Expr where
   alpha (EApp app) = EApp <$> alpha app
-  alpha (EIf tst thn els) = liftA3 EIf (alpha tst) (alpha thn) (alpha els)
+  alpha (EIf tst thn els) = do
+    (_, map) <- get
+    tst' <- withState (fmap $ const map) (alpha tst)
+    thn' <- withState (fmap $ const map) (alpha thn)
+    els' <- withState (fmap $ const map) (alpha els)
+    return $ EIf tst' thn' els'
+
   alpha (EVar n) = do
     uniq <- getUN n
     return $ EVar uniq
@@ -391,15 +397,29 @@ instance Alphatization Expr where
   alpha (ELit l) = return $ ELit l
 
 instance Alphatization Application where
-  alpha (AppPrim n es) = AppPrim n <$> mapM alpha es
-  alpha (AppLam e es) = liftA2 AppLam (alpha e) (mapM alpha es)
+  alpha (AppPrim n es) = do
+    (_, map) <- get
+    es' <- forM es $ \e -> withState (fmap $ const map) (alpha e)
+    return $ AppPrim n es'
+  alpha (AppLam e es) = do
+    (_, map) <- get
+    hd <- withState (fmap $ const map) (alpha e)
+    tl <- forM es $ \e -> withState (fmap $ const map) (alpha e)
+    return $ AppLam hd tl
 
 instance Alphatization Apply where
   alpha (ApplyPrim n e) = ApplyPrim n <$> alpha e
-  alpha (ApplyLam e1 e2) = liftA2 ApplyLam (alpha e1) (alpha e2)
+  alpha (ApplyLam e1 e2) = do
+    (_, map) <- get
+    e1' <- withState (fmap $ const map) (alpha e1)
+    e2' <- withState (fmap $ const map) (alpha e2)
+    return $ ApplyLam e1' e2'
 
 instance Alphatization Body where
-  alpha (Body es) = Body <$> mapM alpha es
+  alpha (Body es) = do
+    (_, map) <- get
+    es' <- forM es $ \e -> withState (fmap $ const map) (alpha e)
+    return $ Body es'
 
 instance Alphatization Let where
   alpha (Let [(n, e)] b) = do

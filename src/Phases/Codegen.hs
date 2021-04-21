@@ -232,7 +232,7 @@ sobjPtr :: Type
 sobjPtr = ptr sobj
 
 funTy :: Type
-funTy = FunctionType sobjPtr [sobjPtr, sobjPtr] False
+funTy = FunctionType sobjPtr [sobjPtr, sobjPtr, sobjPtr] False
 
 funTyPtr :: Type
 funTyPtr = PointerType funTy (AddrSpace 0)

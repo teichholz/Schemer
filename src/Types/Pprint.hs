@@ -117,13 +117,13 @@ instance Pretty a => Pretty (Application a) where
   pretty (AppPrim "car" [EApp (AppPrim "cdr" [e])]) =
     inParens (pretty ("cadr" :: String) <+> doIndent (pretty e))
   pretty (AppPrim "cons" [car, EApp (AppPrim "cons" [cadr, EApp (AppPrim "cons" [caddr, EApp (AppPrim "cons" [cadddr, nil])])])]) =
-    inParens $ pretty ("cons'" :: String) <> doIndent (vertDocs $ pretty <$> [car, cadr, caddr, caddr])
+    inParens $ pretty ("cons'" :: String) <> doIndent (vertDocs $ pretty <$> [car, cadr, caddr, cadddr, nil])
   pretty (AppPrim "cons" [car, EApp (AppPrim "cons" [cadr, EApp (AppPrim "cons" [caddr, nil])])]) =
-    inParens $ pretty ("cons'" :: String) <> doIndent (vertDocs $ pretty <$> [car, cadr, caddr])
+    inParens $ pretty ("cons'" :: String) <> doIndent (vertDocs $ pretty <$> [car, cadr, caddr, nil])
   pretty (AppPrim "cons" [car, EApp (AppPrim "cons" [cadr, nil])]) =
-    inParens $ pretty ("cons'" :: String) <> doIndent (vertDocs $ pretty <$> [car, cadr])
+    inParens $ pretty ("cons'" :: String) <> doIndent (vertDocs $ pretty <$> [car, cadr, nil])
   pretty (AppPrim "cons" [car, nil]) =
-    inParens $ pretty ("cons'" :: String) <> doIndent (vertDocs $ pretty <$> [car])
+    inParens $ pretty ("cons'" :: String) <> doIndent (vertDocs $ pretty <$> [car, nil])
   pretty (AppPrim n es) =
     inParens (pretty n <> doIndent (vertDocs $ pretty <$> es))
   pretty (AppLam e es) =
@@ -150,6 +150,8 @@ instance Pretty a => Pretty (Expr a) where
     inParens ("set!" <> doIndent (pretty n) <> doIndent (pretty e))
   pretty (ELit lit) = pretty lit
   pretty (EApply app) = pretty app
+  pretty (ECallCC lam) =
+    inParens ("call\\cc" <> doIndent (pretty lam))
 
 
 instance Pretty a => Pretty (Decl a) where

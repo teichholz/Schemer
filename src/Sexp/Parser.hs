@@ -3,7 +3,7 @@
 
 module Sexp.Parser (Sexp(..), Sexp.Parser.runParser, Parser) where
 
-import RIO
+import RIO hiding (try)
 import Text.Megaparsec as M
 import Text.Megaparsec.Char
 
@@ -36,7 +36,7 @@ lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
 
 atom :: Parser Sexp
-atom = Atom <$> lexeme (stringAtom <|> rawAtom) -- stringAtom has higher precedence than rawAtom
+atom = Atom <$> lexeme (choice [stringAtom, rawAtom]) -- stringAtom has higher precedence than rawAtom
 
 rawAtom :: Parser Text
 rawAtom = takeWhile1P (Just "S-expression atom character") isAtom
@@ -45,7 +45,7 @@ stringAtom :: Parser Text
 stringAtom = char '\"' *> fmap (("\"" <>) . (<> "\"")) (takeWhileP (Just "S-expression string character") isStringAtom) <* char '\"'
 
 isAtom :: Char -> Bool
-isAtom = (`notElem` ['\n', '\t', '(', ')', ' '])
+isAtom = (`notElem` ['\n', '\t', '(', ')', ' ', '#', '\''])
 
 isStringAtom :: Char -> Bool
 isStringAtom = (`notElem` ['\n', '\"'])
@@ -54,13 +54,13 @@ list :: Parser Sexp -> Parser Sexp
 list ps = List <$> parens (M.some ps)
 
 sexp :: Parser Sexp
-sexp = list sexp <|> atom
+sexp = choice $ fmap try [nil, quoted vec, quoted' atom, quoted' (list sexp)]
 
 quoted :: Parser Sexp -> Parser Sexp
 quoted p = fmap (\sxp -> List[Atom "quote", sxp]) (char '\'' *> p)
 
 quoted' :: Parser Sexp -> Parser Sexp
-quoted' p = quoted p <|> p
+quoted' p = try (quoted p) <|> p
 
 vec :: Parser Sexp
 vec = fmap (\(List l) -> List $ Atom"vec":l) (char '#' *> list sexp)
@@ -77,7 +77,7 @@ rpar :: Parser Text
 rpar = symbol ")"
 
 sexp' :: Parser Sexp
-sexp' = sc *> (nil <|> M.try (quoted vec) <|> M.try (quoted' sexp)) <* sc
+sexp' = sc *> sexp <* sc
 
 sexps :: Parser [Sexp]
 sexps = sepBy sexp' sc <* eof
@@ -101,10 +101,17 @@ txt = [r|
 nilT :: Text
 nilT = [r|'()|]
 
+listT :: Text
+listT = [r|'(1 2 3 4)|]
+
 vecT :: Text
 vecT = [r|'#(1 2 3 4)|]
 
 symT :: Text
 symT = [r|'hey|]
+
+letT :: Text
+letT = [r|(let ((x '()))
+             x)|]
 
 test = parseTest sexps

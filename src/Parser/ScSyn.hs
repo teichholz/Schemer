@@ -68,7 +68,7 @@ parseExpr = \case
 
   List[Atom "quote", sxp] -> ELit <$> parseQuote sxp
 
-  List[Atom "call\\cc", fn] -> case fn of
+  List[Atom "call\\cc", fn] -> makeCallCC <$> case fn of
     Atom x | isIdent x -> parseIdent x
     List(Atom "lambda":lam) -> parseLambda lam
     _ -> throwM $ ParseException "Wrong call\\cc"

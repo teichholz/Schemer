@@ -1,5 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, TupleSections #-}
 -- | 1. Phase: Toplevel transformation into a single Expr, removing all declarations.
 
 -- This phase removes alle declarations (define) inside of bodies (let, lambda, define, Toplevel)
@@ -39,11 +39,16 @@ body2Rec oldBody = makeRecBinding (decl2bind <$> getDecls oldBody) (toBody $ get
 
 makeRecBinding :: [(Name, Expr Name)] -> Body Name -> Expr Name
 makeRecBinding bindings body =
-  let bindings' =
-        if null bindings
-        then [(makeUniqueName "toplevel" body, toExpr makeUnspecified)]
-        else bindings in
-    makeLet bindings' body
+  if null bindings
+  then makeLet [(makeUniqueName "toplevel" body, toExpr makeUnspecified)] body
+  else makeRecLet bindings body
+
+makeRecLet :: [(Name, Expr Name)] -> Body Name -> Expr Name
+makeRecLet binds (Body bes) =
+  let (ns, es) = unzip binds
+      unspecs = fmap (, makeUnspecified) ns
+      sets = zipWith makeSet ns es in
+    makeLet unspecs (toBody $ sets ++ fmap toExpr bes)
 
 decl2bind :: Decl Name -> (Name, Expr Name)
 decl2bind = \case
