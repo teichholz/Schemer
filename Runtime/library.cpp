@@ -17,7 +17,7 @@ const char *get_type_of_sobj(SObj *obj) {
 
 void ASSERT_TYPE(SObj *obj, SType ty, const char* msg, const char *fn) {
     if (obj->type != ty) {
-        type_errf(msg, fn, get_type_of_sobj(obj));
+        type_errf(msg, fn, get_type_of_sobj(obj), obj);
     }
 }
 

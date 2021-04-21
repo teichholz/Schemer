@@ -63,10 +63,10 @@ quoted' :: Parser Sexp -> Parser Sexp
 quoted' p = try (quoted p) <|> p
 
 vec :: Parser Sexp
-vec = fmap (\(List l) -> List $ Atom"vec":l) (char '#' *> list sexp)
+vec = lexeme $ fmap (\(List l) -> List $ Atom"vec":l) (char '#' *> list sexp)
 
 nil :: Parser Sexp
-nil = fmap (const $ List[]) (string "'()")
+nil = lexeme $ fmap (const $ List[]) (string "'()")
 
 parens :: Parser a -> Parser a
 parens = between lpar rpar
@@ -106,6 +106,11 @@ listT = [r|'(1 2 3 4)|]
 
 vecT :: Text
 vecT = [r|'#(1 2 3 4)|]
+
+defT :: Text
+defT =[r|
+  (foldl rcons '() lst)
+|]
 
 symT :: Text
 symT = [r|'hey|]

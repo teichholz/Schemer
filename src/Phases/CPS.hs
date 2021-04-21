@@ -54,7 +54,6 @@ t e c = case e of
   -- Primtive calls in return positions will be letbound and the cont called on the body of the let. Thus they return they pass their value to the continuation and "return"
   EApp (AppPrim _ _) -> t (ret e) c
   EApply (ApplyPrim _ _ ) -> t (ret e) c
-  ESet _ _ -> t (ret e) c
 
   -- Propagate tAe, remember that ANF forces non-atomic expressions to applications/applys to be letbound
   ELet l@(Let pat body) | not $ appLamBind l -> do
@@ -63,7 +62,6 @@ t e c = case e of
                   EApp (AppPrim n es) -> makePrimApp n (tAe <$> es)
                   EApply (ApplyPrim n e) -> makePrimApply n (tAe e)
                   ELam _ -> tAe rhs
-                  ESet n e -> makeSet n (tAe e)
                   ECallCC _ -> t rhs c
                   x -> x
 

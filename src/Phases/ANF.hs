@@ -85,9 +85,6 @@ normalize e = case toExpr e of
        Es es' <- normalizeNames es
        return $ E $ makeLamApp e' es'
 
-  ESet n e -> do
-       return $ E $ makeSet n (normalizeTerm e)
-
   EApply app -> case app of
      ApplyPrim n e -> do
        E e' <- normalizeName e

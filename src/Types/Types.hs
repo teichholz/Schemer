@@ -423,8 +423,9 @@ instance Alphatization Body where
 
 instance Alphatization Let where
   alpha (Let [(n, e)] b) = do
-    e' <- alpha e
     (cnt, map) <- get
+    e' <- alpha e
+    modify (fmap $ const map)
     let uniq = makeUniqName n cnt
         newmap = addUniqName n uniq map
         newbind = [(uniq, e')]

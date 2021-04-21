@@ -31,8 +31,8 @@ transform = do
   astref <- asks _ast
   ast <- readSomeRef astref
 
+  logDebug $ "AST with unique names before assignment transformation:\n" <> display (runAlpha ast)
   let (ast', frees) = go ast
-  logDebug $ "Free variables in AST:\n" <> display (show $ S.map unUniqName frees)
   logDebug $ "AST after assignment transformation:\n" <> display ast'
 
   writeSomeRef astref ast'

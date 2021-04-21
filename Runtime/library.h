@@ -16,11 +16,13 @@
         exit(1); \
         }
 
-#define type_errf(format, fn, actualType) { \
+#define type_errf(format, fn, actualType, obj) { \
         printf("Runtime type error: "); \
         printf(format, fn); \
         printf("\n"); \
         printf("But got: %s\n", actualType); \
+        printf("With value: "); \
+        display(obj); \
         exit(1); \
         }
 
