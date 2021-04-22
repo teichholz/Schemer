@@ -22,14 +22,21 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - rio >= 0.1.12.0
-- megaparsec
+- rio-orphans
+- mtl
+
 - prettyprinter
 - text
-- mtl
+
+- megaparsec
 - regex-tdfa
 - raw-strings-qq
+
 - llvm-hs
 - llvm-hs-pure
+
+- repline == 0.4.0.0
+- process
 
 ghc-options:
 - -Wall

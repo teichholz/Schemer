@@ -3,18 +3,38 @@
 {-# LANGUAGE LambdaCase, OverloadedStrings #-}
 -- | Parsing Sexp into Expr
 
-module Parser.ScSyn (runParser) where
+module Parser.ScSyn (parse) where
 
 import RIO
 import RIO.Text (unpack)
 import Utils.NameResolver (isPrim)
 import RIO.List.Partial (head, tail)
 import RIO.State
-import Sexp.Parser (Sexp(..))
 import Types.Types
 import Types.Constructors
 import Types.Exceptions
 import Sexp.Literals
+
+-------------------------------------------------------------------------------
+-- Parse action
+-------------------------------------------------------------------------------
+
+parse :: ScEnv ()
+parse = do
+  logInfo "Parsing symbolic expressions into Scheme toplevel syntax"
+  sexpsref <- asks _sexps
+  sexps <- readSomeRef sexpsref
+
+  top <- liftIO $ forM sexps runParser
+
+  toplevel <- asks _toplevel
+  writeSomeRef toplevel top
+
+  return ()
+
+-------------------------------------------------------------------------------
+-- Parse Sexps into toplevel Scheme expressions
+-------------------------------------------------------------------------------
 
 data Args
   = Normal [Name]

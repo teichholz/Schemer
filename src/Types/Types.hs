@@ -21,14 +21,14 @@ import Data.Data (cast)
 import Data.Foldable
 import LLVM (File(File))
 
-
 -- Main datatype as a: ReaderT Env IO a
 type ScEnv a = RIO Env a
 
 data Env = Env
   { _file :: SourceFile
+  , _sexps :: SomeRef [Sexp]
+  , _toplevel :: SomeRef [ScSyn Name] -- Top level Scheme syntax
   , _ast      :: SomeRef (ScSyn Name)  -- Scheme syntax
-  , _toplevel :: [ScSyn Name] -- Top level Scheme syntax
   , _procs :: SomeRef [Proc UniqName]
   , _options :: Options -- CLI options / arguments
   , _name :: String -- Name of this awesome compiler
@@ -48,6 +48,14 @@ data Options = Options
 
 instance HasLogFunc Env where
   logFuncL = lens _logF (\x y -> x {_logF = y})
+
+-------------------------------------------------------------------------------
+-- Sexp
+-------------------------------------------------------------------------------
+data Sexp =
+    Atom Text
+  | List [Sexp]
+  deriving (Show)
 
 -------------------------------------------------------------------------------
 -- AST

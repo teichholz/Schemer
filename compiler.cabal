@@ -58,9 +58,12 @@ library
     , megaparsec
     , mtl
     , prettyprinter
+    , process
     , raw-strings-qq
     , regex-tdfa
+    , repline ==0.4.0.0
     , rio >=0.1.12.0
+    , rio-orphans
     , text
   default-language: Haskell2010
 
@@ -68,6 +71,7 @@ executable compiler-exe
   main-is: Main.hs
   other-modules:
       Cli
+      Repl
       Paths_compiler
   hs-source-dirs:
       app
@@ -83,9 +87,12 @@ executable compiler-exe
     , mtl
     , optparse-applicative
     , prettyprinter
+    , process
     , raw-strings-qq
     , regex-tdfa
+    , repline ==0.4.0.0
     , rio >=0.1.12.0
+    , rio-orphans
     , text
   default-language: Haskell2010
 
@@ -106,8 +113,11 @@ test-suite compiler-test
     , megaparsec
     , mtl
     , prettyprinter
+    , process
     , raw-strings-qq
     , regex-tdfa
+    , repline ==0.4.0.0
     , rio >=0.1.12.0
+    , rio-orphans
     , text
   default-language: Haskell2010

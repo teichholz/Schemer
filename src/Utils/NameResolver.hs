@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 -- |
 
-module Utils.NameResolver (getCname, isPrim, isOverloaded, isVariadic, primsAndAritys) where
+module Utils.NameResolver (getCname, isPrim, isOverloaded, isVariadic, primsAndAritys, schemePrims) where
 
 import RIO
 import RIO.ByteString
@@ -56,6 +56,11 @@ instance IsVarName Text where
 
 isPrim :: (IsVarName a) => a -> Bool
 isPrim a = L.any ((getName a ==) . (\(n, _, _) -> getName n)) prims
+
+schemePrims :: [ByteString]
+schemePrims = do
+  (n, _, _) <- prims
+  return n
 
 isOverloaded :: PrimName -> Bool
 isOverloaded (PName (sn, _)) = sn `L.elem` overloaded

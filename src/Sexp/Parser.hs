@@ -1,25 +1,25 @@
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts, OverloadedStrings, QuasiQuotes #-}
 -- | Parses S-expressions into its own datatype
 
-module Sexp.Parser (Sexp(..), Sexp.Parser.runParser, Parser) where
+module Sexp.Parser (Sexp.Parser.parse, Parser) where
 
 import RIO hiding (try)
-import Text.Megaparsec as M
+
+import Text.Megaparsec as M hiding (runParser)
 import Text.Megaparsec.Char
 
 import qualified Text.Megaparsec.Char.Lexer as L
 import Control.Applicative as A
 import Text.RawString.QQ
+import Types.Types (ScEnv (), Sexp(..), Env(..), SourceFile(..))
+import Prelude (putStrLn, print)
 
 -------------------------------------------------------------------------------
 -- Types
 -------------------------------------------------------------------------------
-type Parser = Parsec Void Text
 
-data Sexp =
-    Atom Text
-  | List [Sexp]
-  deriving (Show)
+type Parser = Parsec Void Text
 
 -------------------------------------------------------------------------------
 -- Parser
@@ -85,7 +85,24 @@ sexps = sepBy sexp' sc <* eof
 runParser :: FilePath -> Text -> Either (ParseErrorBundle Text Void) [Sexp]
 runParser = M.parse sexps
 
+-------------------------------------------------------------------------------
+-- Reading and transforming the source file into symbolic expressions
+-------------------------------------------------------------------------------
 
+parse :: ScEnv ()
+parse = do
+  logInfo "Parsing raw text into symbolic expressions"
+  sexps <- asks _sexps
+  SourceFile{_fname, _fsrc} <- asks _file
+
+  liftIO $ case runParser _fname _fsrc of
+    Left err -> do
+      print err
+      exitFailure
+    Right sxps -> do
+      writeSomeRef sexps sxps
+
+  return ()
 
 -------------------------------------------------------------------------------
 -- Tests

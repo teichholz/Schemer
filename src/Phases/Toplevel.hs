@@ -20,7 +20,8 @@ import Types.Constructors
 transform :: ScEnv ()
 transform = do
   logInfo "Performing toplevel transformation"
-  top <- asks _toplevel
+  topref <- asks _toplevel
+  top <- readSomeRef topref
   logDebug $ "Input Toplevel is:\n" <>  mconcat (display <$> top)
   let top' = toBody top
       topLet = toSyn $ body2Rec top'

@@ -80,7 +80,7 @@ closureConversion e = case e of
   ELam lam@(Lam ps b) ->
     let env = makeGloballyUniqueName "env" b
         fvs = toAscList (fv lam)
-        fvs' = trace (show fvs <> show lam) (zip fvs [1..])
+        fvs' = zip fvs [1..]
         b' = envAccess b env fvs' in
       makeClosure (Lam (env:ps) b') fvs
   e -> e
