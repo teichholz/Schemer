@@ -497,40 +497,40 @@ SObj *string_set(SObj *obj, SObj *k, SObj *ch) {
 //numbers
 
 
-void arhelper(SObj *obj1, SObj *obj2, char op){
+SObj *arhelper(SObj *obj1, SObj *obj2, const char op){
+    SObj *ret;
     switch(obj2->type) {
         case Int:
             switch (obj1 -> type){
                 case Int:
                     switch (op){
                         case '+':
-                            obj1->content.Int.value += _unwrap_int(obj2);
+                            ret = const_init_int(_unwrap_int(obj1) + _unwrap_int(obj2));
                             break;
                         case '-':
-                            obj1->content.Int.value -= _unwrap_int(obj2);
+                            ret = const_init_int(_unwrap_int(obj1) - _unwrap_int(obj2));
                             break;
                         case '*':
-                            obj1->content.Int.value *= _unwrap_int(obj2);
+                            ret = const_init_int(_unwrap_int(obj1) * _unwrap_int(obj2));
                             break;
                         case '/':
-                            obj1->content.Float.value = obj1->content.Int.value / (float) _unwrap_int(obj2) ;
-                            obj1->type = Float;
+                            ret = const_init_float(_unwrap_int(obj1) / (float) _unwrap_int(obj2));
                             break;
                     }
                     break;
                 case Float:
                     switch (op){
                         case '+':
-                            obj1->content.Float.value += _unwrap_int(obj2);
+                            ret = const_init_float(_unwrap_float(obj1) + _unwrap_int(obj2));
                             break;
                         case '-':
-                            obj1->content.Float.value -= _unwrap_int(obj2);
+                            ret = const_init_float(_unwrap_float(obj1) - _unwrap_int(obj2));
                             break;
                         case '*':
-                            obj1->content.Float.value *= _unwrap_int(obj2);
+                            ret = const_init_float(_unwrap_float(obj1) * _unwrap_int(obj2));
                             break;
                         case '/':
-                            obj1->content.Float.value /=  _unwrap_int(obj2) ;
+                            ret = const_init_float(_unwrap_float(obj1) / _unwrap_int(obj2));
                             break;
                     }
                     break;
@@ -541,37 +541,40 @@ void arhelper(SObj *obj1, SObj *obj2, char op){
                 case Int:
                     switch (op){
                         case '+':
-                            obj1->type = Float;
-                            obj1->content.Float.value = obj1->content.Int.value + _unwrap_float(obj2);
+                            ret = const_init_float(_unwrap_int(obj1) + _unwrap_float(obj2));
                             break;
                         case '-':
-                            obj1->type = Float;
-                            obj1->content.Float.value = obj1->content.Int.value - _unwrap_float(obj2);
+                            ret = const_init_float(_unwrap_int(obj1) - _unwrap_float(obj2));
+                            break;
                         case '*':
-                            obj1->type = Float;
-                            obj1->content.Float.value = obj1->content.Int.value * _unwrap_float(obj2);
+                            ret = const_init_float(_unwrap_int(obj1) * _unwrap_float(obj2));
+                            break;
                         case '/':
-                            obj1->type = Float;
-                            obj1->content.Float.value = obj1->content.Int.value / _unwrap_float(obj2);
+                            ret = const_init_float(_unwrap_int(obj1) / _unwrap_float(obj2));
+                            break;
                     }
                     break;
                 case Float:
                     switch (op){
                         case '+':
-                            obj1->content.Float.value +=  _unwrap_float(obj2);
+                            ret = const_init_float(_unwrap_float(obj1) +  _unwrap_float(obj2));
                             break;
                         case '-':
-                            obj1->content.Float.value -= _unwrap_float(obj2);
+                            ret = const_init_float(_unwrap_float(obj1) - _unwrap_float(obj2));
+                            break;
                         case '*':
-                            obj1->content.Float.value *=  _unwrap_float(obj2);
+                            ret = const_init_float(_unwrap_float(obj1) *  _unwrap_float(obj2));
+                            break;
                         case '/':
-                            obj1->content.Float.value /=  _unwrap_float(obj2);
+                            ret = const_init_float(_unwrap_float(obj1) /  _unwrap_float(obj2));
+                            break;
                     }
             }
     }
+    return ret;
 }
 
-SObj *afoldl(SObj *obj, SObj *init, char op){
+SObj *afoldl(SObj *obj, SObj *init, const char op){
     if(listp(obj) == t){
         SObj *ptr = nullptr;
         SObj *cur = init;
@@ -584,7 +587,7 @@ SObj *afoldl(SObj *obj, SObj *init, char op){
             }
 
             obj = cdr(obj);
-            arhelper(cur, ptr, op);
+            cur = arhelper(cur, ptr, op);
         } while(obj->type == Cons);
 
         return cur;
@@ -646,7 +649,7 @@ int type_prec(SType type) {
     return 0;
 }
 
-bool lhelper(SObj *obj1, SObj *obj2, char *op){
+bool lhelper(SObj *obj1, SObj *obj2, const char *op){
     switch(obj1->type){
         case Int:
             switch (obj2->type){
@@ -699,7 +702,7 @@ bool lhelper(SObj *obj1, SObj *obj2, char *op){
         }
 }
 
-SObj *lfoldl(SObj *obj, SObj *init, char* op){
+SObj *lfoldl(SObj *obj, SObj *init, const char* op){
     if(listp(obj) == t){
         SObj *ptr = init;
         SObj *cur = init;

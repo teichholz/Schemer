@@ -136,9 +136,12 @@ let list = ["="; ">"; "<"; "<="; ">="; "+"; "-"; "*"; "/";
 
 
 
-//helper
+//helper, mostly exported for testing
+SObj *arhelper(SObj*, SObj*, const char);
 s64 unwrap_int(SObj*, const char*);
+s64 _unwrap_int(SObj*);
 f64 unwrap_float(SObj*, const char*);
+f64 _unwrap_float(SObj*);
 char unwrap_char(SObj*, const char*);
 char* unwrap_string(SObj*, const char*);
 char* unwrap_symbol(SObj*, const char*);

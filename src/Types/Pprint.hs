@@ -68,6 +68,7 @@ instance Pretty Literal where
   pretty (LitBool True) =  "#t"
   pretty (LitBool False) = "#t"
   pretty (LitInt x) = unsafeViaShow x
+  pretty (LitFloat x) = unsafeViaShow x
   pretty (LitChar c) =
     pretty $ getChar c
     where
