@@ -8,6 +8,6 @@ git clone https://github.com/teichholz/Schemer && cd Schemer
 ```
 After that you can run:
 ```
-stack run
+nix-shell && stack run
 ```
 Which will throw you into a repl. 
