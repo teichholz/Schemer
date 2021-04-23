@@ -1,3 +1,0 @@
-/home/tim/doc/bt/Schemer/Runtime/CMakeFiles/rebuild_cache.dir
-/home/tim/doc/bt/Schemer/Runtime/CMakeFiles/edit_cache.dir
-/home/tim/doc/bt/Schemer/Runtime/CMakeFiles/Runtime.dir

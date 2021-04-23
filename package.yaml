@@ -73,6 +73,10 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
 
+    extra-libraries:
+     - gc
+     - Runtime_s
+
 tests:
   compiler-test:
     main:                Spec.hs

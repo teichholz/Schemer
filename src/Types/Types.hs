@@ -61,8 +61,6 @@ data Sexp =
 -- AST
 -------------------------------------------------------------------------------
 
--- Pre-Desugar
-
 -- dummy AST
 dummy :: ScSyn Name
 dummy = ScExpr $ ELit LitUnspecified

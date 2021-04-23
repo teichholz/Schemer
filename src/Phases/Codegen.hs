@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving, NoImplicitPrelude #-}
@@ -39,10 +40,9 @@ import RIO.List (sortBy)
 import Data.List (repeat)
 import Control.Monad.Fix (MonadFix)
 import LLVM.Module (withModuleFromAST)
-import LLVM.Context (withContext)
-import LLVM (moduleLLVMAssembly)
+import LLVM.Context (withContext, Context)
+import LLVM (moduleLLVMAssembly, moduleAST)
 import Prelude (print)
-import LLVM.Prelude (putStrLn)
 import RIO.ByteString (putStr)
 import LLVM.Target (withHostTargetMachine)
 import LLVM.Relocation as Relocation (Model(PIC))
@@ -50,6 +50,12 @@ import LLVM.CodeModel as Model (Model(Default, Large))
 import LLVM.CodeGenOpt as CodeOpt (Level(Default))
 import LLVM.Module (File(File))
 import LLVM.Module (writeObjectToFile)
+import LLVM.Linking (loadLibraryPermanently)
+import LLVM.PassManager (withPassManager, runPassManager, PassSetSpec, optLevel, defaultCuratedPassSetSpec)
+import qualified LLVM.ExecutionEngine as EE
+
+import GHC.Ptr (FunPtr)
+import Foreign (castFunPtr)
 
 transform :: ScEnv ()
 transform = do
@@ -57,7 +63,10 @@ transform = do
   procsref <- asks _procs
   procs <- readSomeRef procsref
 
-  mod <- go procs
+  SourceFile{_fname} <- asks _file
+  _ <- case _fname of
+    "<repl>" -> runJIT procs
+    _ -> compile procs
 
   return ()
 
@@ -65,11 +74,43 @@ transform = do
 -------------------------------------------------------------------------------
 -- Codegen
 -------------------------------------------------------------------------------
+passes :: PassSetSpec
+passes = defaultCuratedPassSetSpec { optLevel = Just 3 }
+
+jit :: Context -> (EE.MCJIT -> IO a) -> IO a
+jit c = EE.withMCJIT c optlevel model ptrelim fastins
+  where
+    optlevel = Just 2  -- optimization level
+    model    = Nothing -- code model ( Default )
+    ptrelim  = Nothing -- frame pointer elimination
+    fastins  = Nothing -- fast instruction selection
+
+foreign import ccall "dynamic" haskFun :: FunPtr (IO ()) -> IO ()
+
+run :: FunPtr a -> IO ()
+run fn = haskFun (castFunPtr fn :: FunPtr (IO ()))
+
+runJIT :: [Proc UniqName] -> ScEnv Module
+runJIT procs = do
+  liftIO $ withContext $ \context ->
+    withModuleFromAST context newast $ \m -> do
+      withPassManager passes $ \pm -> do
+        runPassManager pm m
+        jit context $ \executionEngine -> do
+          EE.withModuleInEngine executionEngine m $ \ee -> do
+            optmod <- moduleAST m
+            s <- moduleLLVMAssembly m
+            putStr s
+            mainfn <- EE.getFunction ee (AST.Name "main")
+            mapM_ run mainfn
+            return optmod
+  where
+    modn = initModule >> mapM codegen procs
+    newast = runLLVM modn
 
 
-
-go :: [Proc UniqName] -> ScEnv Module
-go procs = do
+compile :: [Proc UniqName] -> ScEnv Module
+compile procs = do
   objectFilePath <- asks _outputFile
   liftIO $ withContext $ \context ->
     withModuleFromAST context newast $ \m -> do
@@ -85,8 +126,11 @@ go procs = do
 codegen :: Proc UniqName -> LLVM ()
 codegen (Proc (name, ELam (Lam ps (Body [body])))) = do
   let formals = zip (repeat sobjPtr) (fmap toName ps)
+  let rettype = case name of
+                  UName "main" 0 -> TY.void
+                  _     -> sobjPtr
 
-  define (decl sobjPtr name formals) $ \operands -> do
+  define (decl rettype name formals) $ \operands -> do
     -- Register the arguments, so they can be accessed as variables
     let names = fmap toName ps
         args = zip names operands

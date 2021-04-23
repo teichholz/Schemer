@@ -1,5 +1,0 @@
-/nix/store/m273wzcl88zjhpr37pil78vz4jaa2lns-clion-2020.3.1/clion-2020.3.1/bin/cmake/linux/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /home/tim/doc/bt/Schemer/Runtime
-/nix/store/3zmdrlwini4fajiddknyjrpnh8v8nq3n-boehm-gc-8.0.4/lib/libgc.so
--- Configuring done
--- Generating done
--- Build files have been written to: /home/tim/doc/bt/Schemer/Runtime

@@ -5,7 +5,7 @@ packages:
 
 nix:
     enable: true
-    packages: [llvm_9]
+    shell-file: stackshell.nix
 
 ghc-options:
   "$everything": -haddock
