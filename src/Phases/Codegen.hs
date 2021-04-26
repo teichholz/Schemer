@@ -56,6 +56,7 @@ import qualified LLVM.ExecutionEngine as EE
 
 import GHC.Ptr (FunPtr)
 import Foreign (castFunPtr)
+import System.IO (putStrLn)
 
 transform :: ScEnv ()
 transform = do

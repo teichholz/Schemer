@@ -136,4 +136,7 @@ letT :: Text
 letT = [r|(let ((x '()))
              x)|]
 
+appT :: Text
+appT = [r| ((lambda (x) (+ x 42)) |]
+
 test = parseTest sexps
