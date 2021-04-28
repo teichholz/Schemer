@@ -41,11 +41,11 @@ atom = Atom <$> lexeme (choice [stringAtom, rawAtom]) -- stringAtom has higher p
 rawAtom :: Parser Text
 rawAtom = takeWhile1P (Just "S-expression atom character") isAtom
 
-stringAtom :: Parser Text
-stringAtom = char '\"' *> fmap (("\"" <>) . (<> "\"")) (takeWhileP (Just "S-expression string character") isStringAtom) <* char '\"'
-
 isAtom :: Char -> Bool
-isAtom = (`notElem` ['\n', '\t', '(', ')', ' ', '#', '\''])
+isAtom = (`notElem` ['\n', '\t', '(', ')', ' ', '#', '\'', ',', '@', '`'])
+
+stringAtom :: Parser Text
+stringAtom = char '\"' *> fmap (("\"" <>) . (<> "\"")) (takeWhileP (Just "S-expression string") isStringAtom) <* char '\"'
 
 isStringAtom :: Char -> Bool
 isStringAtom = (`notElem` ['\n', '\"'])
@@ -53,20 +53,19 @@ isStringAtom = (`notElem` ['\n', '\"'])
 list :: Parser Sexp -> Parser Sexp
 list ps = List <$> parens (M.some ps)
 
+modifier :: Parser (Sexp -> Sexp)
+modifier = do
+  fs <- M.many $ choice shortcuts
+  return $ foldr (.) id fs
+  where
+    shortcuts :: [Parser (Sexp -> Sexp)]
+    shortcuts = [quoted, qq, uqs, uq]
+
 sexp :: Parser Sexp
-sexp = choice $ fmap try [nil, quoted vec, quoted' atom, quoted' (list sexp)]
-
-quoted :: Parser Sexp -> Parser Sexp
-quoted p = fmap (\sxp -> List[Atom "quote", sxp]) (char '\'' *> p)
-
-quoted' :: Parser Sexp -> Parser Sexp
-quoted' p = try (quoted p) <|> p
+sexp = nil <|> (try modifier <*> choice [vec, list sexp, atom])
 
 vec :: Parser Sexp
 vec = lexeme $ fmap (\(List l) -> List $ Atom"vec":l) (char '#' *> list sexp)
-
-nil :: Parser Sexp
-nil = lexeme $ fmap (const $ List[]) (string "'()")
 
 parens :: Parser a -> Parser a
 parens = between lpar rpar
@@ -84,6 +83,36 @@ sexps = sepBy sexp' sc <* eof
 
 runParser :: FilePath -> Text -> Either (ParseErrorBundle Text Void) [Sexp]
 runParser = M.parse sexps
+
+-------------------------------------------------------------------------------
+-- Quotes
+-------------------------------------------------------------------------------
+quoted :: Parser (Sexp -> Sexp)
+quoted = shortcut "'" "quote"
+
+nil :: Parser Sexp
+nil = lexeme $ fmap (const $ List[]) (string "'()")
+
+-------------------------------------------------------------------------------
+-- Quasiquotes
+-------------------------------------------------------------------------------
+-- ` => quasiquote
+qq :: Parser (Sexp -> Sexp)
+qq = shortcut "`" "quasiquote"
+
+-- , => unquote
+uq :: Parser (Sexp -> Sexp)
+uq = shortcut "," "unquote"
+
+-- @ => unquote-splicing
+uqs :: Parser (Sexp -> Sexp)
+uqs = shortcut ",@" "unquote-splicing"
+
+-------------------------------------------------------------------------------
+-- Reader helper
+-------------------------------------------------------------------------------
+shortcut :: Text -> Text -> Parser (Sexp -> Sexp)
+shortcut short long = (\sxp -> List[Atom long, sxp]) <$ string short
 
 -------------------------------------------------------------------------------
 -- Reading and transforming the source file into symbolic expressions
@@ -137,6 +166,18 @@ letT = [r|(let ((x '()))
              x)|]
 
 appT :: Text
-appT = [r| ((lambda (x) (+ x 42)) |]
+appT = [r| ((lambda (x) (+ x 42))) |]
+
+qqT :: Text
+qqT = [r| `(1 2 3 4) |]
+
+qq2T :: Text
+qq2T = [r| `(1 2 3 ,(+ 1 2)) |]
+
+qq3T :: Text
+qq3T = [r| `(1 2 3 ,@(1 2)) |]
+
+qq4T :: Text
+qq4T = [r| `(1 2 3 ,@(1 2) ,(+ 1 2) ',name) |]
 
 test = parseTest sexps

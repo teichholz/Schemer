@@ -1,6 +1,8 @@
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE LambdaCase #-}
 
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase, OverloadedStrings #-}
+{-# LANGUAGE LambdaCase, OverloadedStrings, PatternSynonyms #-}
 -- | Parsing Sexp into Expr
 
 module Parser.ScSyn (parse) where
@@ -65,6 +67,8 @@ parseExprs = mapM parseExpr
 
 parseExpr :: Sexp -> IO (Expr Name)
 parseExpr = \case
+  l@(List(UQ:_)) -> parseExpr $ parseQQ l
+
   List(Atom "let":tl) -> (case tl of
     List bindings:body -> liftA2 makeLet (parseBindings bindings) (parseL body)
     _ -> throwM $ ParseException "Wrong let")
@@ -188,6 +192,103 @@ parseQuote sxp = case sxp of
         hd <- parseQuote hd
         tl <- parseList tl
         return $ hd:tl
+
+-------------------------------------------------------------------------------
+-- Reader
+-------------------------------------------------------------------------------
+-- This code is executed before the actual parser
+
+pattern QQ :: Sexp
+pattern QQ = Atom "quasiquote"
+pattern UQ :: Sexp
+pattern UQ = Atom "unquote"
+pattern UQS :: Sexp
+pattern UQS = Atom "unquote-splicing"
+
+quote :: Sexp -> Sexp
+quote sxp = List[Atom "quote", sxp]
+
+unquote :: Sexp -> Sexp
+unquote (List [UQ, sxp]) = sxp
+unquote x = x
+
+listApp :: [Sexp] -> Sexp
+listApp args = List $ Atom "list" : args
+
+containsUQ :: Sexp -> Bool
+containsUQ (Atom _) = False
+containsUQ (List l) = not $ null [ x | x@(List [UQS, _]) <- l ]
+
+
+type Nesting = Int
+type QQ a = State Nesting a
+
+incN :: QQ ()
+incN = modify (+1)
+
+decN :: QQ ()
+decN = modify ((-)1)
+
+getN :: QQ Nesting
+getN = get
+
+parseQQ :: Sexp -> Sexp
+parseQQ (List[QQ, sexp'@(Atom _)]) = quote sexp'
+parseQQ (List [QQ, List[UQ, sexp'@(Atom _)]]) = sexp'
+parseQQ l = evalState (qqList l) 0
+  where
+    qqList :: Sexp -> QQ Sexp
+    qqList (List[QQ, sexp@(List l)])
+      | containsUQ sexp = do
+          l' <- forM l \case
+                  l@(List [UQ, x]) -> do
+                    decN
+                    nest <- getN
+                    let sexp = if nest == 0 then listApp [x] else listApp [quote l]
+                    return sexp
+
+                  l@(List [UQS, x]) -> do
+                    decN
+                    nest <- getN
+                    let sexp = if nest == 0 then x else listApp [quote l]
+                    return sexp
+
+                  l@(List [QQ, List _]) -> do
+                    incN
+                    qqList l
+
+                  s@(List [QQ, Atom _]) -> return $ listApp [quote s]
+
+                  a@(Atom _) -> return $ listApp [quote a]
+
+          return $ listApp l'
+
+
+      | otherwise = do
+          l' <- forM l \case
+                  l@(List [UQ, a@(Atom _)]) -> do
+                    nest <- getN
+                    let sexp = if nest == 1 then a else l
+                    return sexp
+
+                  l@(List [UQ, l'@(List _)]) -> do
+                    nest <- getN
+                    sexp <- if nest == 1 then return l' else decN >> qqList l
+                    put nest
+                    return sexp
+
+                  l@(List [QQ, List _]) -> do
+                    nest <- getN
+                    sexp <- incN >> qqList l
+                    put nest
+                    return sexp
+
+                  l@(List [QQ, Atom _]) -> return $ quote l
+
+                  a@(Atom _) -> return $ quote a
+
+          return $ listApp l'
+
 
 
 

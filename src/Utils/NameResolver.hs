@@ -30,14 +30,14 @@ prims = [
   -- String
   ("make-string", "make_string", [1,2]), ("string-length", "string_length", [1]), ("string-ref", "string_ref", [2]), ("string-set!", "string_set", [3]),
   -- Cons
-  ("cons", "cons", [2]), ("car", "car", [1]), ("cdr", "cdr", [1]), ("length", "length", [1]), ("set-car!", "set_car", [1]), ("set-cdr!", "set_cdr", [1]),
+  ("cons", "cons", [2]), ("car", "car", [1]), ("cdr", "cdr", [1]), ("length", "length", [1]), ("set-car!", "set_car", [1]), ("set-cdr!", "set_cdr", [1]), ("append", "append", [1]), ("list", "list", [1]),
   -- Vector
   ("make-vector", "make_vector",[1,2]), ("vector-length", "vector_length", [1]), ("vector-ref", "vector_ref", [2]), ("vector-set!", "vector_set", [3]),
   -- Printing
   ("display", "display", [1])
   ]
 
-varargs = ["+" , "-", "*", "/", "=", ">", ">=", "<", "<="]
+varargs = ["+" , "-", "*", "/", "=", ">", ">=", "<", "<=", "append", "list"]
 
 overloaded = ["+", "*", "make-string", "make-vector"]
 
