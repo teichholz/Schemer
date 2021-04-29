@@ -13,6 +13,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 import Control.Applicative as A
 import Text.RawString.QQ
 import Types.Types (ScEnv (), Sexp(..), Env(..), SourceFile(..))
+import Types.Pprint
 import Prelude (putStrLn, print)
 
 -------------------------------------------------------------------------------
@@ -124,12 +125,16 @@ parse = do
   sexps <- asks _sexps
   SourceFile{_fname, _fsrc} <- asks _file
 
+
   liftIO $ case runParser _fname _fsrc of
     Left err -> do
       print err
       exitFailure
     Right sxps -> do
       writeSomeRef sexps sxps
+
+  sxps <- readSomeRef sexps
+  logDebug $ "Parsed symbolic expressions:\n" <> display sxps
 
   return ()
 

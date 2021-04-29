@@ -17,6 +17,9 @@ import Text.Regex.TDFA as Re
 isIdent :: Text -> Bool
 isIdent = (Re.=~ ("^[a-zA-Z][a-zA-Z0-9]*$" :: String))
 
+isName :: Text -> Bool
+isName t = not (isInt t) && not (isFloat t) && not (isString t) && not (isChar t) && not (isBool t)
+
 isInt :: Text -> Bool
 isInt = (Re.=~ ("^-?[0-9]+$" :: String))
 

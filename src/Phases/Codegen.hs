@@ -8,7 +8,7 @@
 
 module Phases.Codegen where
 
-import RIO hiding (local, const)
+import RIO hiding (local, const, mod)
 import GHC.Float (float2Double)
 import RIO.State
 import qualified RIO.Map as Map
@@ -333,6 +333,12 @@ type SymbolTable = [(Name, Operand)]
 
 type Names = Map.Map ShortByteString Int
 
+data LLVMState
+  = LLVMState {
+    mod :: AST.Module
+  , globalNames        :: Names
+  } deriving Show
+
 data CodegenState
   = CodegenState {
     currentBlock :: LN.Name                     -- Name of the active block to append to
@@ -350,8 +356,8 @@ data BlockState
   , term  :: Maybe (Named Terminator)       -- Block terminator
   } deriving Show
 
-newtype LLVM a = LLVM (State AST.Module a)
-  deriving (Functor, Applicative, Monad, MonadState AST.Module, MonadFix)
+newtype LLVM a = LLVM (State LLVMState a)
+  deriving (Functor, Applicative, Monad, MonadState LLVMState, MonadFix)
 
 newtype Codegen a = Codegen { runCodegen :: StateT CodegenState LLVM a }
   deriving (Functor, Applicative, Monad, MonadState CodegenState, MonadFix)
@@ -361,8 +367,13 @@ newtype Codegen a = Codegen { runCodegen :: StateT CodegenState LLVM a }
 -------------------------------------------------------------------------------
 
 runLLVM :: LLVM a -> AST.Module
-runLLVM (LLVM m) = execState m emptyModule
+runLLVM (LLVM m) = mod $ execState m emptyLLVMState
 
+emptyLLVMState :: LLVMState
+emptyLLVMState = LLVMState {
+  mod = emptyModule
+  , globalNames = Map.empty
+                           }
 emptyModule :: AST.Module
 emptyModule = defaultModule { moduleName = "Scheme", moduleDefinitions = [TypeDefinition "SObj" Nothing] }
 
@@ -375,10 +386,19 @@ decl ret label argtys =
   , LLVM.AST.Global.callingConvention = CC.Fast
   }
 
+getModule :: MonadState LLVMState m => m AST.Module
+getModule = gets mod
+
+updateModule :: MonadState LLVMState m => (AST.Module -> AST.Module) -> m ()
+updateModule mf = do
+  mod <- getModule
+  modify $ \s -> s { mod = mf mod  }
+
 addDefn :: Definition -> LLVM ()
 addDefn d = do
-  defs <- gets moduleDefinitions
-  modify $ \s -> s { moduleDefinitions = defs ++ [d] }
+  mod <- getModule
+  let defs = moduleDefinitions mod
+  updateModule $ \m -> m { moduleDefinitions = defs ++ [d] }
 
 define ::  Global -> ([Operand] -> Codegen a) -> LLVM ()
 define decl body = do
@@ -398,7 +418,7 @@ fnPtr nm = do
   return $ fmap (\fn' -> PointerType (typeOf fn') (AddrSpace 0)) fn
 
 findFnByName :: Name -> Codegen (Maybe Global)
-findFnByName nm = Codegen $ lift $ findType <$> gets moduleDefinitions
+findFnByName nm = Codegen $ lift $ fmap (findType . moduleDefinitions) getModule
   where
     findType defs =
       case fnDefByName of
@@ -427,10 +447,7 @@ globalStringPtr nm str = do
       charArray = C.Array char llvmVals
       ty        = LLVM.AST.Typed.typeOf charArray
 
-  namesupply <- gets names
-  let (name, namesupply') = uniqueName nm namesupply
-  modify $ \s -> s {names = namesupply'}
-
+  name <- Codegen $ lift $ uniqueGlobalName nm
 
   Codegen $ lift $ addDefn $ GlobalDefinition globalVariableDefaults
     { name                  = Name name
@@ -442,7 +459,7 @@ globalStringPtr nm str = do
     }
 
   return $ ConstantOperand $ C.GetElementPtr True
-                           (C.GlobalReference (ptr ty) (Name nm))
+                           (C.GlobalReference (ptr ty) (Name name))
                            [C.Int 32 0, C.Int 32 0]
 
 declare ::  Global -> LLVM ()
@@ -481,6 +498,13 @@ uniqueName nm ns =
   case Map.lookup nm ns of
     Nothing -> (nm, Map.insert nm 1 ns)
     Just ix -> (nm <> fromString (show ix), Map.insert nm (ix + 1) ns)
+
+uniqueGlobalName :: MonadState LLVMState m => ShortByteString -> m ShortByteString
+uniqueGlobalName nm = do
+  ns <- gets globalNames
+  let (nm', ns') = uniqueName nm ns
+  modify $ \s -> s { globalNames = ns' }
+  return nm'
 
 argNameRT :: Word -> Name
 argNameRT = UnName

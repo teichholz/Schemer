@@ -11,6 +11,7 @@ import RIO
 import RIO.Text (unpack)
 import Utils.NameResolver (isPrim)
 import RIO.List.Partial (head, tail)
+import Prelude (print)
 import RIO.State
 import Types.Types
 import Types.Constructors
@@ -67,7 +68,10 @@ parseExprs = mapM parseExpr
 
 parseExpr :: Sexp -> IO (Expr Name)
 parseExpr = \case
-  l@(List(UQ:_)) -> parseExpr $ parseQQ l
+  l@(List(QQ:_)) -> do
+    let qq = parseQQ l
+    print qq
+    parseExpr qq
 
   List(Atom "let":tl) -> (case tl of
     List bindings:body -> liftA2 makeLet (parseBindings bindings) (parseL body)
@@ -130,7 +134,7 @@ parseLit = \case
   Atom x | isInt x -> return $ LitInt (parseLiteral intLiteral x)
   Atom x | isFloat x -> return $ LitFloat (parseLiteral floatLiteral x)
   Atom x | isBool x -> return $ LitBool (parseLiteral boolLiteral x)
-  _ -> throwM $ ParseException "Wrong literal"
+  s -> throwM $ ParseException $ "Wrong literal: " <> show s
 
 
 parseBindings :: [Sexp] -> IO [(Name, Expr Name)]
@@ -175,7 +179,7 @@ parseQuote sxp = case sxp of
   List(Atom "vec":tl) -> LitVector <$> parseList tl
   List es -> LitList <$> parseList es
   Atom _ -> case sxp of
-    Atom x | isIdent x -> return $ LitSymbol (parseLiteral varLiteral x)
+    Atom x | isName x -> return $ LitSymbol (parseLiteral varLiteral x)
     Atom _ ->  parseLit sxp
   where
     parseList :: [Sexp] -> IO [Literal]
@@ -212,12 +216,15 @@ unquote :: Sexp -> Sexp
 unquote (List [UQ, sxp]) = sxp
 unquote x = x
 
-listApp :: [Sexp] -> Sexp
-listApp args = List $ Atom "list" : args
+listApp :: Sexp -> Sexp
+listApp (List args) = List $ Atom "list" : args
 
-containsUQ :: Sexp -> Bool
-containsUQ (Atom _) = False
-containsUQ (List l) = not $ null [ x | x@(List [UQS, _]) <- l ]
+appendApp :: Sexp -> Sexp
+appendApp (List args) = List $ Atom "append" : args
+
+containsUQS :: Sexp -> Bool
+containsUQS (Atom _) = False
+containsUQS (List l) = not $ null [ x | x@(List [UQS, _]) <- l ]
 
 
 type Nesting = Int
@@ -227,7 +234,7 @@ incN :: QQ ()
 incN = modify (+1)
 
 decN :: QQ ()
-decN = modify ((-)1)
+decN = modify $ \s -> s - 1
 
 getN :: QQ Nesting
 getN = get
@@ -235,59 +242,93 @@ getN = get
 parseQQ :: Sexp -> Sexp
 parseQQ (List[QQ, sexp'@(Atom _)]) = quote sexp'
 parseQQ (List [QQ, List[UQ, sexp'@(Atom _)]]) = sexp'
-parseQQ l = evalState (qqList l) 0
+parseQQ (List[QQ, l@(List _)]) = evalState (qqList l) 1
   where
     qqList :: Sexp -> QQ Sexp
-    qqList (List[QQ, sexp@(List l)])
-      | containsUQ sexp = do
-          l' <- forM l \case
-                  l@(List [UQ, x]) -> do
-                    decN
-                    nest <- getN
-                    let sexp = if nest == 0 then listApp [x] else listApp [quote l]
-                    return sexp
-
-                  l@(List [UQS, x]) -> do
-                    decN
-                    nest <- getN
-                    let sexp = if nest == 0 then x else listApp [quote l]
-                    return sexp
-
-                  l@(List [QQ, List _]) -> do
-                    incN
-                    qqList l
-
-                  s@(List [QQ, Atom _]) -> return $ listApp [quote s]
-
-                  a@(Atom _) -> return $ listApp [quote a]
-
-          return $ listApp l'
-
-
+    qqList sexp@(List l)
       | otherwise = do
           l' <- forM l \case
-                  l@(List [UQ, a@(Atom _)]) -> do
+                  (List [UQ, a@(Atom _)]) -> do
                     nest <- getN
-                    let sexp = if nest == 1 then a else l
+                    let sexp = if nest == 1 then a else listApp $ quote $ List [UQ, a]
                     return sexp
 
-                  l@(List [UQ, l'@(List _)]) -> do
+                  (List [UQ, l'@(List _)]) -> do
                     nest <- getN
-                    sexp <- if nest == 1 then return l' else decN >> qqList l
-                    put nest
-                    return sexp
+                    if nest == 1 then
+                      return l'
+                    else do
+                      sexp <- decN >> qqList l'
+                      put nest
+                      return $ listApp $ List [quote UQ, sexp]
 
-                  l@(List [QQ, List _]) -> do
+                  (List [QQ, l@(List _)]) -> do
                     nest <- getN
                     sexp <- incN >> qqList l
                     put nest
-                    return sexp
+                    return $ listApp $ List [quote QQ, sexp]
 
                   l@(List [QQ, Atom _]) -> return $ quote l
 
+                  (List _) -> qqList sexp
+
                   a@(Atom _) -> return $ quote a
 
-          return $ listApp l'
+                  _ -> error "unreachable"
+
+
+          return $ listApp $ List l'
+
+      | containsUQS sexp = do
+          nest <- getN
+          let wrap = if nest == 1 then listApp else id
+          let finalWrap = if nest == 1 then appendApp else listApp
+
+          l' <- forM l \case
+
+                  (List [UQS, a@(Atom _)]) -> do
+                    nest <- getN
+                    let sexp = if nest == 1 then a else wrap $ listApp $ quote $ List [UQS, a]
+                    return sexp
+
+                  (List [UQS, l'@(List _)]) -> do
+                    nest <- getN
+                    if nest == 1 then
+                      return l'
+                    else do
+                      sexp <- decN >> qqList l'
+                      put nest
+                      return $ wrap $ listApp $ List [quote UQS, sexp]
+
+                  (List [UQ, a@(Atom _)]) -> do
+                    nest <- getN
+                    let sexp = if nest == 1 then a else listApp $ quote $ List [UQ, a]
+                    return sexp
+
+                  (List [UQ, l'@(List _)]) -> do
+                    nest <- getN
+                    if nest == 1 then
+                      return $ wrap l'
+                    else do
+                      sexp <- decN >> qqList l'
+                      put nest
+                      return $ wrap $ listApp $ List [quote UQ, sexp]
+
+                  (List [QQ, l@(List _)]) -> do
+                    nest <- getN
+                    sexp <- incN >> qqList l
+                    put nest
+                    return $ listApp $ List [quote QQ, sexp]
+
+                  l@(List [QQ, Atom _]) -> return $ wrap $ quote l
+
+                  (List _) -> wrap <$> qqList sexp
+
+                  a@(Atom _) -> return $ wrap $ quote a
+
+          return $ finalWrap $ List l'
+
+
 
 
 

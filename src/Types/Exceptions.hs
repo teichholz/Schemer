@@ -5,6 +5,7 @@ module Types.Exceptions where
 
 import RIO
 import Data.Typeable (cast)
+import Types.Types (Sexp)
 
 
 -------------------------------------------------------------------------------

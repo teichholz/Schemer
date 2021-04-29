@@ -77,7 +77,7 @@ instance Pretty Literal where
       getChar '\n' = "#\\" <> "newline"
       getChar c = snoc "#\\" c
   pretty (LitString str) = inQuotes $ pretty str
-  pretty (LitSymbol sym) = pretty sym
+  pretty (LitSymbol sym) = quoted $ pretty sym
   pretty (LitList list) = quoted $ mkList $ pretty <$> list
   pretty LitNil = quoted $ inParens emptyDoc
   pretty (LitVector vec) = quoted $ "#" <> pretty (LitList vec)
@@ -185,6 +185,9 @@ instance Display a => Display [a] where
 
 instance Pretty a => Display (ScSyn a) where
   textDisplay = textDisplay . pretty
+
+instance Display Sexp where
+  textDisplay = textDisplay . show
 
 -- instance Display String where
 --   textDisplay = textDisplay . pretty
