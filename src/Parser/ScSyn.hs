@@ -17,6 +17,7 @@ import Types.Types
 import Types.Constructors
 import Types.Exceptions
 import Sexp.Literals
+import System.IO (putStrLn)
 
 -------------------------------------------------------------------------------
 -- Parse action
@@ -69,7 +70,9 @@ parseExprs = mapM parseExpr
 parseExpr :: Sexp -> IO (Expr Name)
 parseExpr = \case
   l@(List(QQ:_)) -> do
-    let qq = parseQQ l
+    qq <- parseQQ l
+
+    print "QUASIQUOTE DESUGAR: \n"
     print qq
     parseExpr qq
 
@@ -202,6 +205,10 @@ parseQuote sxp = case sxp of
 -------------------------------------------------------------------------------
 -- This code is executed before the actual parser
 
+-------------------------------------------------------------------------------
+-- Quasiquotation
+-------------------------------------------------------------------------------
+
 pattern QQ :: Sexp
 pattern QQ = Atom "quasiquote"
 pattern UQ :: Sexp
@@ -209,165 +216,187 @@ pattern UQ = Atom "unquote"
 pattern UQS :: Sexp
 pattern UQS = Atom "unquote-splicing"
 
+mods :: [Sexp]
+mods = [QQ, UQ, UQS]
+
+isMod :: Sexp -> Bool
+isMod (List (hd:_)) = elem hd mods
+isMod _ = False
+
+listFun :: Sexp
+listFun = Atom "list"
+
+appendFun :: Sexp
+appendFun = Atom "append"
+
 quote :: Sexp -> Sexp
 quote sxp = List[Atom "quote", sxp]
 
-unquote :: Sexp -> Sexp
-unquote (List [UQ, sxp]) = sxp
-unquote x = x
-
 listApp :: Sexp -> Sexp
 listApp (List args) = List $ Atom "list" : args
+
+wrapInListApp :: Sexp -> Sexp
+wrapInListApp sxp = listApp $ List [sxp]
 
 appendApp :: Sexp -> Sexp
 appendApp (List args) = List $ Atom "append" : args
 
 containsUQS :: Sexp -> Bool
 containsUQS (Atom _) = False
+containsUQS (List [UQS, _]) = True
 containsUQS (List l) = not $ null [ x | x@(List [UQS, _]) <- l ]
 
-
 type Nesting = Int
-type QQ a = State Nesting a
+type UQSP = Bool
+-- IO for debugging, trace does not do its job well
+type QQ a = StateT (Nesting, UQSP) IO a
+
+emptyS :: (Int, Bool)
+emptyS = (1, False)
 
 incN :: QQ ()
-incN = modify (+1)
+incN = modify $ bimap (+1) id
 
 decN :: QQ ()
-decN = modify $ \s -> s - 1
+decN = modify $ bimap (\n -> n - 1) id
 
 getN :: QQ Nesting
-getN = get
+getN = gets fst
 
-parseQQ :: Sexp -> Sexp
-parseQQ (List[QQ, sexp'@(Atom _)]) = quote sexp'
-parseQQ (List [QQ, List[UQ, sexp'@(Atom _)]]) = sexp'
-parseQQ (List[QQ, l@(List _)]) = evalState (qqList l) 1
+modifyUQS :: Bool -> QQ ()
+modifyUQS b = modify $ bimap id (const b)
+
+getUQSP :: QQ UQSP
+getUQSP = gets snd
+
+setUQS :: QQ ()
+setUQS = modifyUQS True
+
+unsetUQS :: QQ ()
+unsetUQS = modifyUQS False
+
+useUQS :: QQ a -> QQ a
+useUQS m = do
+  setUQS
+  a <- m
+  unsetUQS
+  return a
+
+
+-- We don't wont changes of nesting to 'leak' over to other symbolic expressions in a list
+-- So this is used whenever we change the nesting and recur over sub symbolic expressions of a list.
+freezeN :: QQ a -> QQ a
+freezeN m = do
+  n <- getN
+  a <- m
+  modify $ bimap (const n) id
+  return a
+
+
+parseQQ :: Sexp -> IO Sexp
+parseQQ (List[QQ, sexp'@(Atom _)]) = return $ quote sexp' -- Atom case is simple Quote
+parseQQ (List[QQ, List [Atom "vec", l@(List _)]]) = do
+  list <- parseQQ l
+  return $ List [Atom "list2vector", list]
+parseQQ (List[QQ, l@(List _)])
+  | isMod l = evalStateT (qqSexp l) emptyS -- need to consider cases with nested modifiers, e.g: `,2
+  | otherwise = evalStateT (qqList l) emptyS
   where
     qqList :: Sexp -> QQ Sexp
-    qqList sexp@(List l)
-      | otherwise = do
-          l' <- forM l \case
-                  (List [UQ, a@(Atom _)]) -> do
-                    nest <- getN
-                    let sexp = if nest == 1 then a else listApp $ quote $ List [UQ, a]
-                    return sexp
-
-                  (List [UQ, l'@(List _)]) -> do
-                    nest <- getN
-                    if nest == 1 then
-                      return l'
-                    else do
-                      sexp <- decN >> qqList l'
-                      put nest
-                      return $ listApp $ List [quote UQ, sexp]
-
-                  (List [QQ, l@(List _)]) -> do
-                    nest <- getN
-                    sexp <- incN >> qqList l
-                    put nest
-                    return $ listApp $ List [quote QQ, sexp]
-
-                  l@(List [QQ, Atom _]) -> return $ quote l
-
-                  (List _) -> qqList sexp
-
-                  a@(Atom _) -> return $ quote a
-
-                  _ -> error "unreachable"
-
-
-          return $ listApp $ List l'
-
-      | containsUQS sexp = do
+    qqList sexp@(List l) = do
           nest <- getN
-          let wrap = if nest == 1 then listApp else id
-          let finalWrap = if nest == 1 then appendApp else listApp
+          lift $ putStrLn $ "NEST IS:" <> show nest
+          lift $ putStrLn $ "UQS?" <> show (containsUQS sexp)
+          -- These correspond with unquote-splicing (,@)
+          let uqsp = containsUQS sexp && nest == 1
+              finalWrap = if uqsp then appendApp else listApp
 
-          l' <- forM l \case
+          -- qqList and qqSexp are mutually recursive
+          l' <- if uqsp then forM l (useUQS . qqSexp) else forM l qqSexp
 
-                  (List [UQS, a@(Atom _)]) -> do
-                    nest <- getN
-                    let sexp = if nest == 1 then a else wrap $ listApp $ quote $ List [UQS, a]
-                    return sexp
-
-                  (List [UQS, l'@(List _)]) -> do
-                    nest <- getN
-                    if nest == 1 then
-                      return l'
-                    else do
-                      sexp <- decN >> qqList l'
-                      put nest
-                      return $ wrap $ listApp $ List [quote UQS, sexp]
-
-                  (List [UQ, a@(Atom _)]) -> do
-                    nest <- getN
-                    let sexp = if nest == 1 then a else listApp $ quote $ List [UQ, a]
-                    return sexp
-
-                  (List [UQ, l'@(List _)]) -> do
-                    nest <- getN
-                    if nest == 1 then
-                      return $ wrap l'
-                    else do
-                      sexp <- decN >> qqList l'
-                      put nest
-                      return $ wrap $ listApp $ List [quote UQ, sexp]
-
-                  (List [QQ, l@(List _)]) -> do
-                    nest <- getN
-                    sexp <- incN >> qqList l
-                    put nest
-                    return $ listApp $ List [quote QQ, sexp]
-
-                  l@(List [QQ, Atom _]) -> return $ wrap $ quote l
-
-                  (List _) -> wrap <$> qqList sexp
-
-                  a@(Atom _) -> return $ wrap $ quote a
-
+          -- we either need make a `list` call or a `append` call out of the list l', depends whether or not UQS got used
           return $ finalWrap $ List l'
 
+    qqList _ = error "unreachable"
 
+    qqSexp :: Sexp -> QQ Sexp
+    qqSexp sexp = do
+      let _ = List [Atom "quasiquote",List [Atom "0",List [Atom "unquote",List [Atom "+",Atom "1",Atom "2"]],List [Atom "unquote-splicing",List [Atom "list",Atom "0"]]]]
+      nest <- getN
+      uqsp <- getUQSP
+      unsetUQS -- unset in case of recursive calls
+      lift $ putStrLn ("uqsp ist: " <> show uqsp)
+      let wrap = if uqsp then wrapInListApp else id
+      case sexp of
+        List [UQS, a@(Atom _)] -> do
+          lift $ putStrLn "UQSA"
+          if nest == 1 then -- check if 1 since decN is not needed, we can just return the sexp
+            return a
+          else
+            return $ quote $ List [UQS, a]
 
+        List [UQS, l@(List _)]  -> do
+          lift $ putStrLn "UQSL"
+          if nest == 1 then do -- check if 1 since decN is not needed, we can just return the sexp
+            return l
+          else do
+            -- We need to consider cases where a modifier follows a modifier, e.g: ,,2.
+            sexp <- freezeN $ if isMod l then decN >> qqSexp l else decN >> qqList l
+            if containsUQS l && nest == 2 then
+              -- We need to consider cases like: ,,@(list 0) which becomes:
+              -- (append (list 'unquote) (list 0)) => ,0
+              return $ List [appendFun, wrapInListApp $ quote UQS, sexp]
+            else
+              return $ List [listFun, quote UQS, sexp]
 
+        List [UQ, a@(Atom _)] -> do
+          lift $ putStrLn "UQA"
+          if nest == 1 then -- check if 1 since decN is not needed, we can just return the sexp
+            return $ wrap a
+          else
+            return $ quote $ List [UQ, a]
 
+        List [UQ, l@(List _)] -> do
+          lift $ putStrLn "UQL"
+          if nest == 1 then  -- check if 1 since decN is not needed, we can just return the sexp
+            return $ wrap l
+          else do
+            -- We need to consider cases where a modifier follows a modifier, e.g: ,,2.
+            sexp <- freezeN $ if isMod l then decN >> qqSexp l else decN >> qqList l
+            if containsUQS l && nest == 2 then
+              -- We need to consider cases like: ,,@(list 0) which becomes:
+              -- (append (list 'unquote) (list 0)) => ,0
+              return $ List [appendFun, wrapInListApp $ quote UQ, sexp]
+            else
+              return $ List [listFun, quote UQ, sexp]
 
+        List [QQ, l@(List _)] -> do
+          lift $ putStrLn "QQL"
+          if nest == 0 then -- Start new QQ if nesting is 0 e.g: `,`2
+            lift $ parseQQ sexp
+          else do
+            -- We need to consider cases where a modifier follows a modifier, e.g: ,,2.
+            sexp <- freezeN $ if isMod l then incN >> qqSexp l else incN >> qqList l
+            if containsUQS l && nest == 2 then
+              -- We need to consider cases like: ,,@(list 0) which becomes:
+              -- (append (list 'unquote) (list 0)) => ,0
+              return $ List [appendFun, wrapInListApp $ quote QQ, sexp]
+            else
+              return $ wrap $ List [listFun, quote QQ, sexp]
 
--- parseCond :: [Sexp] -> IO Expr
--- parseCond clauses = makeCond <$> parseCondBody clauses
+        List [QQ, Atom _] -> do
+          lift $ putStrLn "QQA"
+          if nest == 0 then
+            lift $ parseQQ sexp -- Start new QQ if nesting is 0 e.g: `,`2
+          else do
+            return $ wrap $ quote sexp
 
--- parseCondBody :: [Sexp] -> IO CondBody
--- parseCondBody = sequence . go
---   where
---     go :: [Sexp] -> [IO (Expr, BodyKind)]
---     go sxp =
---       case sxp of
---         [] -> [return (makeLiteral $ makeBool True, makeMultBody [makeLiteral makeUnspecified])]
---         [List(Atom "else":tl)] -> [liftA2 (,) (return $ makeLiteral $ makeBool True) (makeMultBody <$> parseExprs tl)]
---         clause:tl -> parseCondClause clause:go tl
+        List _ -> do
+          lift $ putStrLn "L"
+          wrap <$> freezeN (qqList sexp) -- Loop over the list
 
--- parseCondClause ::  Sexp -> IO (Expr, BodyKind)
--- parseCondClause = \case
---   List(tst:bdy) ->
---     let test = parseExpr tst
---         body = makeMultBody <$> parseExprs bdy in
---       liftA2 (,) test body
---   _ -> throwM $ ParseException "Wrong cond clause"
+        Atom _ -> do
+          lift $ putStrLn "A"
+          return $ wrap $ quote sexp -- Quote the atom, consider that UQS is used
 
--- parseCaseBody :: [Sexp] -> IO CaseBody
--- parseCaseBody = sequence . go
---   where
---     go :: [Sexp] -> [IO ([Literal], BodyKind)]
---     go sxp =
---       case sxp of
---         [] -> [return (makeLiteral $ makeBool True, makeMultBody [makeLiteral makeUnspecified])]
---         [List(Atom "else":tl)] -> [liftA2 (,) (return [makeLiteral $ makeBool True]) (makeMultBody <$> parseExprs tl)]
---         clause:tl -> parseCaseClause clause:go tl
-
--- parseCaseClause :: Sexp -> IO ([Literal], BodyKind)
--- parseCaseClause = \case
---   List(List(datums):bdy) ->
---     let lits = sequence (parseLit <$> datums)
---         body = makeMultBody <$> parseExprs bdy in
---       liftA2 (,) lits body
+parseQQ _ = error "unreachable"

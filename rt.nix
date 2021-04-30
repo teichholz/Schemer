@@ -5,7 +5,10 @@ stdenv.mkDerivation {
   name = "Scheme-Runtime";
   nativeBuildInputs = [ cmake ];
   buildInputs = [ boehmgc ];
-  src = fetchTarball { url = "https://github.com/teichholz/Schemer-Runtime/archive/refs/heads/main.tar.gz"; };
+  src = fetchFromGitHub { owner = "teichholz";
+                          repo = "Schemer-Runtime";
+                          rev = "main";
+                          sha256= "sha256-TzhltbySQAFw5uhHWvaN9L/4KeLzhKdEsHXczOZr1fA="; };
 
   installPhase = ''
     mkdir -p $out/lib
