@@ -18,6 +18,8 @@ import Types.Constructors
 import Types.Exceptions
 import Sexp.Literals
 import System.IO (putStrLn)
+import RIO.List.Partial
+import RIO.List (elemIndex)
 
 -------------------------------------------------------------------------------
 -- Parse action
@@ -232,19 +234,31 @@ appendFun = Atom "append"
 quote :: Sexp -> Sexp
 quote sxp = List[Atom "quote", sxp]
 
-listApp :: Sexp -> Sexp
-listApp (List args) = List $ Atom "list" : args
-
 wrapInListApp :: Sexp -> Sexp
-wrapInListApp sxp = listApp $ List [sxp]
+wrapInListApp sxp = List [Atom "list", sxp]
 
 appendApp :: Sexp -> Sexp
 appendApp (List args) = List $ Atom "append" : args
+
+consS :: Sexp -> Sexp -> Sexp
+consS s1 s2 = List [ Atom "cons", s1, s2 ]
+
+appendS :: Sexp -> Sexp -> Sexp
+appendS s1 s2 = List [ Atom "append", s1, s2 ]
 
 containsUQS :: Sexp -> Bool
 containsUQS (Atom _) = False
 containsUQS (List [UQS, _]) = True
 containsUQS (List l) = not $ null [ x | x@(List [UQS, _]) <- l ]
+
+splitIfDotted :: [Sexp] -> Maybe ([Sexp], Sexp)
+splitIfDotted l =
+  let index = elemIndex (List [ Atom "quote", Atom "." ]) l <|> elemIndex (List [ Atom "list", List [Atom "quote", Atom "." ]]) l in
+    case index of
+      Nothing -> Nothing
+      Just i -> Just (take i l, head $ drop (i + 1) l)
+
+
 
 type Nesting = Int
 type UQSP = Bool
@@ -309,13 +323,23 @@ parseQQ (List[QQ, l@(List _)])
           lift $ putStrLn $ "UQS?" <> show (containsUQS sexp)
           -- These correspond with unquote-splicing (,@)
           let uqsp = containsUQS sexp && nest == 1
-              finalWrap = if uqsp then appendApp else listApp
+              finalWrap = if uqsp then appendApp else id
 
           -- qqList and qqSexp are mutually recursive
           l' <- if uqsp then forM l (useUQS . qqSexp) else forM l qqSexp
 
           -- we either need make a `list` call or a `append` call out of the list l', depends whether or not UQS got used
-          return $ finalWrap $ List l'
+          -- we also consider dot syntax, e.g: `(1 . 2), in which case we need to cons without Nil
+          case splitIfDotted l' of
+            Nothing -> return $ if uqsp then List (appendFun:l') else List (listFun:l')
+            -- TODO fix this
+            --
+            Just (hds, last) -> do
+              if uqsp then do
+                let (List (Atom "list":[last'])) = last
+                return $ List (appendFun:hds++[last']) -- append is special in that its last arg can be a list or ATOM
+              else
+                return $ foldr consS last hds
 
     qqList _ = error "unreachable"
 

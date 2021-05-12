@@ -8,9 +8,9 @@ module Types.Pprint (pretty, display) where
 import RIO
 import Types.Types
 import Types.Constructors
-import RIO.Text as T
+import RIO.Text as T hiding (length, splitAt)
 import Data.Text.Prettyprint.Doc
-import Data.List as L
+import RIO.List as L
 
 
 -------------------------------------------------------------------------------
@@ -60,6 +60,11 @@ mkParamListDot :: Pretty a => [a] -> a -> Doc ann
 mkParamListDot ns n = mkList $
   (pretty <$> ns) ++ [".", pretty n]
 
+dottedList :: [Literal] -> ([Literal], Literal)
+dottedList l = (hds, tl)
+  where
+    (hds, [tl]) = splitAt (length l - 1) l
+
 -------------------------------------------------------------------------------
 -- Type class and instances
 -------------------------------------------------------------------------------
@@ -78,7 +83,8 @@ instance Pretty Literal where
       getChar c = snoc "#\\" c
   pretty (LitString str) = inQuotes $ pretty str
   pretty (LitSymbol sym) = quoted $ pretty sym
-  pretty (LitList list) = quoted $ mkList $ pretty <$> list
+  pretty (LitList list) =
+    let (hds, tl) = dottedList list in if tl == LitNil then quoted $ mkParamList list else quoted $ mkParamListDot hds tl
   pretty LitNil = quoted $ inParens emptyDoc
   pretty (LitVector vec) = quoted $ "#" <> pretty (LitList vec)
   pretty LitUnspecified  = "unspecified"

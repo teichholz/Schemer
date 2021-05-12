@@ -25,6 +25,8 @@ source-repository head
 
 library
   exposed-modules:
+      Expander.Expander
+      Expander.Naive
       Parser.ScSyn
       Phases.ANF
       Phases.Assignment
@@ -79,9 +81,6 @@ executable compiler-exe
   default-extensions:
       NoImplicitPrelude AutoDeriveTypeable BangPatterns BinaryLiterals ConstraintKinds DataKinds DefaultSignatures DeriveDataTypeable DeriveFoldable DeriveFunctor DeriveGeneric DeriveTraversable DoAndIfThenElse EmptyDataDecls ExistentialQuantification FlexibleContexts FlexibleInstances FunctionalDependencies GADTs GeneralizedNewtypeDeriving InstanceSigs KindSignatures LambdaCase MonadFailDesugaring MultiParamTypeClasses MultiWayIf NamedFieldPuns NoImplicitPrelude OverloadedStrings PartialTypeSignatures PatternGuards PolyKinds RankNTypes RecordWildCards ScopedTypeVariables StandaloneDeriving TupleSections TypeFamilies TypeSynonymInstances ViewPatterns TypeApplications
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -Wno-unused-imports -threaded -rtsopts -with-rtsopts=-N
-  extra-libraries:
-      Runtime_s
-      gc
   build-depends:
       base >=4.7 && <5
     , compiler

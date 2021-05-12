@@ -164,7 +164,7 @@ data Literal
   | LitNil
   | LitVector [Literal]
   | LitUnspecified
-  deriving (Show, Generic, Typeable)
+  deriving (Show, Eq, Generic, Typeable)
 
 -- data SynExtension
 --   = ECond CondBody      -- (cond ((#t) (io) 'true) (else 'false))

@@ -36,3 +36,13 @@ newtype ParseException = ParseException String
 instance Exception ParseException where
     toException   = compilerExceptionToException
     fromException = compilerExceptionFromException
+
+-------------------------------------------------------------------------------
+-- Expander exceptions
+-------------------------------------------------------------------------------
+newtype ExpandException = ExpandException String
+    deriving Show
+
+instance Exception ExpandException where
+    toException   = compilerExceptionToException
+    fromException = compilerExceptionFromException

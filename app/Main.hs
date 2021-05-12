@@ -11,6 +11,7 @@ import Cli (getCLIInput)
 import Repl (repl)
 
 import qualified Sexp.Parser as Sexp
+import qualified Expander.Naive as Expander
 import qualified Parser.ScSyn as ScSyn
 import qualified Phases.Toplevel as Top
 import qualified Phases.Simplify as Sim
@@ -27,7 +28,7 @@ import System.IO (putStrLn)
 
 
 phases :: [ScEnv ()]
-phases = [Sexp.parse, ScSyn.parse, Top.transform, Sim.transform, Ass.transform, ANF.transform, CPS.transform, Uni.transform, Clo.transform, Cod.transform]
+phases = [Sexp.parse, Expander.expand, ScSyn.parse, Top.transform, Sim.transform, Ass.transform, ANF.transform, CPS.transform, Uni.transform, Clo.transform, Cod.transform]
 
 compileAction :: ScEnv ()
 compileAction = foldl1 (>>) phases
@@ -71,6 +72,6 @@ runApp opts sf = do
             , _procs = procsRef
             , _options = opts
             , _name = "Schemer"
-            , _outputFile = File "code.o"
+            , _outputFile = File "../code.o"
             , _logF = logFunc }
     runRIO state compileAction
