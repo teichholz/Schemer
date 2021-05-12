@@ -5,6 +5,7 @@ module Expander.Naive where
 
 import RIO hiding (ST)
 import RIO.State
+import RIO.List (initMaybe, lastMaybe)
 import RIO.Partial (fromJust)
 import Prelude (print)
 import Types.Types (Sexp(..), ScEnv, Env(..))
@@ -29,6 +30,7 @@ data Stree
   | LitList [Stree]
   | LitVec [Stree]
   | LitNil
+  | Deleted
   deriving (Show, Eq)
 
 data MStree
@@ -51,6 +53,23 @@ type Bindings = Map Symbol STF
 newtype Expander a = Expander { runExpander :: StateT ST IO a }
   deriving (Functor, Applicative, Monad, MonadState ST, MonadIO, MonadThrow)
 
+data SyntaxRules = SyntaxRules { literals :: [Stree], rules :: [SyntaxRule] }
+  deriving (Show, Eq)
+
+data Pattern
+  = PatLiteral Stree -- 2, sym
+  | PatIdentifier Symbol --  id
+  | PatListSome [Pattern] Pattern -- (x y ...)
+  | PatList [Pattern]
+  | PatVec [Pattern]
+  | PatEmpty
+  deriving (Show, Eq)
+
+type PatternVariable = (Symbol, Stree)
+
+data SyntaxRule = SyntaxRule { pat :: Pattern, template :: Stree }
+  deriving (Show, Eq)
+
 -------------------------------------------------------------------------------
 -- Patterns
 -------------------------------------------------------------------------------
@@ -59,6 +78,10 @@ pattern Sym :: Symbol -> Stree
 pattern Sym s = LitSymbol s
 pattern Sxp :: [Stree] -> Stree
 pattern Sxp l = LitList l
+pattern DefineSyntax :: Symbol -> Stree -> Stree
+pattern DefineSyntax name transformerSpec = Sxp [Sym "define-syntax", Sym name, transformerSpec]
+pattern Define :: Stree -> Stree -> Stree
+pattern Define args body  = Sxp [Sym "define", args, body]
 pattern Lambda :: Stree -> Stree -> Stree
 pattern Lambda args body = Sxp [Sym "lambda", args, body]
 pattern Let :: [Stree] -> Stree -> Stree
@@ -79,7 +102,7 @@ pattern F = Sym "#f"
 -- ST Setup
 -------------------------------------------------------------------------------
 defaultBindings :: Bindings
-defaultBindings = Map.fromList [("or", or), ("and", and), ("begin", begin)]
+defaultBindings = Map.fromList [("or", or), ("and", and), ("begin", begin), ("define", define)]
   where
     or :: MStree -> Stree
     or (SynExtId _) = error "invalid synext"
@@ -99,6 +122,12 @@ defaultBindings = Map.fromList [("or", or), ("and", and), ("begin", begin)]
     begin (SynExtApp _ [e]) = e
     begin (SynExtApp _ (e:es)) = Let [Bind "l" e] (MStree $ SynExtApp "let" es)
 
+    define :: MStree -> Stree
+    define (SynExtId _) = error "invalid synext"
+    define (SynExtApp _ [d@(Define (Sym _) _)]) = d
+    define (SynExtApp _ [Define (Sxp (name:args)) expr]) = Define name (Lambda (Sxp args) expr)
+    define (SynExtApp _ _) = error "invalid synext"
+
 defaultST :: ST
 defaultST = ST { bindings = defaultBindings, vars = [] }
 -------------------------------------------------------------------------------
@@ -108,6 +137,11 @@ getBinding :: Symbol -> Expander (Maybe STF)
 getBinding sym = do
   bs <- gets bindings
   return $ bs Map.!? sym
+
+addBinding :: Symbol -> STF -> Expander ()
+addBinding sym stf = do
+  bindings <- gets bindings
+  modify $ \s -> s { bindings = Map.insert sym stf bindings }
 
 addVar :: Stree -> Expander ()
 addVar (LitSymbol sym) = do
@@ -140,7 +174,7 @@ isMactok :: Text -> Bool
 isMactok = flip elem mactok
   where
     mactok :: [Text]
-    mactok = ["or", "begin", "and"]
+    mactok = ["or", "begin", "and", "define"]
 
 isConst :: Stree -> Bool
 isConst (LitString _) = True
@@ -192,6 +226,70 @@ parse sxp = case sxp of
         return $ hd:tl
 
 -------------------------------------------------------------------------------
+-- Pattern Matching
+-------------------------------------------------------------------------------
+testRule = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sym "or", Sym "and"]]
+testRule2 = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sxp [Sym "or", Sym "x"], Sym "and"]]
+
+-- We ignore the head of each rule
+parseSyntaxRule :: [Stree] -> Stree -> SyntaxRule
+parseSyntaxRule _ (Sxp [Sym _, template]) = SyntaxRule { pat = PatEmpty, template }
+parseSyntaxRule lits (Sxp [Sxp (_:tl), template]) = SyntaxRule { pat = evalState (parsePatternList tl) [], template }
+  where
+    parsePatternList :: [Stree] -> State [Pattern] Pattern
+    parsePatternList (pat:[Sym "..."]) = do
+      pat' <- parsePattern pat
+      lst <- get
+      return $ PatListSome (reverse lst) pat'
+
+    parsePatternList [end] = do
+      pat <- parsePattern end
+      lst <- get
+      return $ PatList (reverse $ pat:lst)
+
+    parsePatternList (pat:tl) = do
+      pat' <- parsePattern pat
+      modify (pat':)
+      parsePatternList tl
+
+    parsePatternList [] = return PatEmpty
+
+    parsePattern :: Stree -> State [Pattern] Pattern
+    parsePattern pat = case pat of
+        _ | elem pat lits -> return $ PatLiteral pat
+        Sym sym ->  return $ PatIdentifier sym
+        Sxp pats -> parsePatternList pats
+        _ -> error "Wrong pattern"
+
+
+parseSyntaxRules :: Stree -> SyntaxRules
+parseSyntaxRules (Sxp (Sym "syntax-rules":(Sxp literals):rulessxp)) =
+  let rules = fmap (parseSyntaxRule literals) rulessxp in
+    SyntaxRules { literals, rules }
+
+-- Pattern = P, Stree = F
+matches :: Pattern -> Stree -> Bool
+-- Non Literal Identifier always match
+matches (PatIdentifier sym) stree = True
+-- Literals must be equal
+matches (PatLiteral lit) stree = lit == stree
+-- Pn must match Fn
+matches (PatList list) (LitList l) = and $ zipWith matches list l
+
+-- Pn and Fn must match,  Pn+1 must match with Fn+1...Fn+m
+matches (PatListSome list some) (LitList l) =
+  let inits = take (length list) l
+      rest = drop (length list) l in
+    if length inits == length list then
+      and (zipWith matches list inits) && and (fmap (matches some) rest)
+    else
+      False
+
+-- The empty pattern always matches
+matches PatEmpty stree = True
+
+
+-------------------------------------------------------------------------------
 -- Expander
 -------------------------------------------------------------------------------
 
@@ -213,6 +311,11 @@ e s = do
     LitList (LitSymbol "quote":_) -> return s
     LitVec _ -> return s
 
+    -- define-syntax
+    DefineSyntax name transformerSpec -> do
+      addBinding name (makeSTF transformerSpec)
+      return Deleted
+
     -- Macros
     MStree mstree -> do
       sf <- getMacro mstree
@@ -220,6 +323,11 @@ e s = do
       maybe (syntaxError "Macro not found") e (sf <*> Just mstree)
 
     -- Binding forms
+    -- Define
+    Define arg expr -> do
+      addVar arg
+      expr' <- e expr
+      return $ Define arg expr'
     -- Normal lambda and dotted lambda
     Lambda (Sxp args) (Sxp es) -> do
       es' <- withVars (filter (/= LitNil) args) $ forM es e
@@ -244,6 +352,11 @@ e s = do
       thn' <- e thn
       els' <- e els
       return $ If tst' thn' els'
+
+
+
+makeSTF :: Stree -> STF
+makeSTF = error "not implemented"
 
 runExpand :: Expander a -> IO a
 runExpand expander = evalStateT (runExpander expander) defaultST
@@ -276,7 +389,8 @@ expand = do
   strees <- liftIO $ forM sexps parse
   liftIO $ forM_ strees print
   strees' <- liftIO $ runExpand $ forM strees e
-  let sexps = fmap streeToSexp strees'
+  let strees'' = filter (/= Deleted) strees'
+  let sexps = fmap streeToSexp strees''
   logDebug $ "Sexps after macro expansion:\n" <> mconcat (display <$> sexps)
 
   writeSomeRef sexpsref sexps
