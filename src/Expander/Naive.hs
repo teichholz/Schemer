@@ -53,6 +53,16 @@ type Bindings = Map Symbol STF
 newtype Expander a = Expander { runExpander :: StateT ST IO a }
   deriving (Functor, Applicative, Monad, MonadState ST, MonadIO, MonadThrow)
 
+data PVValue
+  = PVStree Stree
+  | PVSome [Stree]
+  deriving (Show, Eq)
+
+data PV = PV { patternVars :: Map Symbol PVValue }
+
+newtype Matcher a = Matcher { runMatcher :: State PV a }
+  deriving (Functor, Applicative, Monad, MonadState PV)
+
 data SyntaxRules = SyntaxRules { literals :: [Stree], rules :: [SyntaxRule] }
   deriving (Show, Eq)
 
@@ -230,8 +240,11 @@ parse sxp = case sxp of
 -------------------------------------------------------------------------------
 testRule = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sym "or", Sym "and"]]
 testRule2 = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sxp [Sym "or", Sym "x"], Sym "and"]]
+testRule3 = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sxp [Sym "or", Sym "x", Sym "y", Sym "..."], Sym "and"]]
+testRule4 = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sxp [Sym "or", Sxp [Sym "a", Sym "b"], Sym "..."], Sym "and"]]
+testRule5 = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sxp [Sym "or", Sym "c", Sxp [Sym "a", Sym "b"], Sym "..."], Sym "and"]]
 
--- We ignore the head of each rule
+-- We ignore the head of each rule, since they always match
 parseSyntaxRule :: [Stree] -> Stree -> SyntaxRule
 parseSyntaxRule _ (Sxp [Sym _, template]) = SyntaxRule { pat = PatEmpty, template }
 parseSyntaxRule lits (Sxp [Sxp (_:tl), template]) = SyntaxRule { pat = evalState (parsePatternList tl) [], template }
@@ -258,7 +271,10 @@ parseSyntaxRule lits (Sxp [Sxp (_:tl), template]) = SyntaxRule { pat = evalState
     parsePattern pat = case pat of
         _ | elem pat lits -> return $ PatLiteral pat
         Sym sym ->  return $ PatIdentifier sym
-        Sxp pats -> parsePatternList pats
+        Sxp pats -> do
+          s <- get
+          l <- put [] >> parsePatternList pats
+          put s >> return l
         _ -> error "Wrong pattern"
 
 
@@ -268,25 +284,28 @@ parseSyntaxRules (Sxp (Sym "syntax-rules":(Sxp literals):rulessxp)) =
     SyntaxRules { literals, rules }
 
 -- Pattern = P, Stree = F
-matches :: Pattern -> Stree -> Bool
+matches :: Pattern -> Stree -> Matcher Bool
 -- Non Literal Identifier always match
-matches (PatIdentifier sym) stree = True
+matches (PatIdentifier sym) stree = return True
 -- Literals must be equal
-matches (PatLiteral lit) stree = lit == stree
+matches (PatLiteral lit) stree = return $ lit == stree
 -- Pn must match Fn
-matches (PatList list) (LitList l) = and $ zipWith matches list l
+matches (PatList list) (LitList l) =
+  if length list == length l then
+    and <$> zipWithM matches list l
+  else return False
 
 -- Pn and Fn must match,  Pn+1 must match with Fn+1...Fn+m
 matches (PatListSome list some) (LitList l) =
   let inits = take (length list) l
       rest = drop (length list) l in
     if length inits == length list then
-      and (zipWith matches list inits) && and (fmap (matches some) rest)
+      liftA2 (&&) (and <$> zipWithM matches list inits) (and <$> mapM (matches some) rest)
     else
-      False
+      return False
 
 -- The empty pattern always matches
-matches PatEmpty stree = True
+matches PatEmpty _ = return True
 
 
 -------------------------------------------------------------------------------
@@ -342,16 +361,9 @@ e s = do
       return $ Let bnd (Sxp es')
 
     -- Application
-    App hd tl -> do
-      hd' <- e hd
-      tl' <- mapM e tl
-      return $ App hd' tl'
+    App hd tl -> liftA2 App (e hd) (mapM e tl)
     -- If
-    If tst thn els -> do
-      tst' <- e tst
-      thn' <- e thn
-      els' <- e els
-      return $ If tst' thn' els'
+    If tst thn els -> liftA3 If (e tst) (e thn) (e els)
 
 
 
