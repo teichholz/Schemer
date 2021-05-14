@@ -42,7 +42,6 @@ type SchemeList = [Stree]
 type Symbol = String
 
 
-
 -- Syntax Table
 data ST = ST { bindings :: Bindings, vars :: [Symbol] }
 -- MStree -> Stree
@@ -50,9 +49,21 @@ data ST = ST { bindings :: Bindings, vars :: [Symbol] }
 type STF = MStree -> Stree
 type Bindings = Map Symbol STF
 
+-- The main driver used for transcription of syntactic extensions
 newtype Expander a = Expander { runExpander :: StateT ST IO a }
   deriving (Functor, Applicative, Monad, MonadState ST, MonadIO, MonadThrow)
 
+-- Types for pattern P
+data Pattern
+  = PatLiteral Stree -- 2, sym
+  | PatIdentifier Symbol --  id
+  | PatListSome [Pattern] Pattern -- (x y ...)
+  | PatList [Pattern]
+  | PatVec [Pattern]
+  | PatEmpty
+  deriving (Show, Eq)
+
+type PatternVariable = (Symbol, Stree)
 data PVValue
   = PVStree Stree
   | PVSome [Stree]
@@ -64,23 +75,27 @@ data PV = PV { patternVars :: PVS, someSwitch :: Bool }
 newtype Matcher a = Matcher { runMatcher :: State PV a }
   deriving (Functor, Applicative, Monad, MonadState PV)
 
-data SyntaxRules = SyntaxRules { literals :: [Stree], rules :: [SyntaxRule] }
+-- Types for template F
+data Template
+  = TempLiteral Stree
+  | TempVar Symbol
+  | TempSome Template
+  | TempList [Template]
   deriving (Show, Eq)
 
-data Pattern
-  = PatLiteral Stree -- 2, sym
-  | PatIdentifier Symbol --  id
-  | PatListSome [Pattern] Pattern -- (x y ...)
-  | PatList [Pattern]
-  | PatVec [Pattern]
-  | PatEmpty
-  deriving (Show, Eq)
+data ConstructorState = ConstructorState { cpatternVars :: PVS, spliceSwitch :: Bool }
 
-type PatternVariable = (Symbol, Stree)
+newtype Constructor a = Constructor { runConstructor :: State ConstructorState a }
+  deriving (Functor, Applicative, Monad, MonadState ConstructorState)
+
+-- Types for syntax-rules
+data SyntaxRules = SyntaxRules { literals :: [Symbol], rules :: [SyntaxRule] }
+  deriving (Show, Eq)
 
 data SyntaxRule = SyntaxRule { pat :: Pattern, template :: Stree }
   deriving (Show, Eq)
 
+instance MonadFail Constructor
 -------------------------------------------------------------------------------
 -- Haskell Pattern Synonyms
 -------------------------------------------------------------------------------
@@ -246,7 +261,7 @@ testRule4 = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sxp [Sym "or", Sxp [Sym
 testRule5 = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sxp [Sym "or", Sym "c", Sxp [Sym "a", Sym "b"], Sym "..."], Sym "and"]]
 
 -- We ignore the head of each rule, since they always match
-parseSyntaxRule :: [Stree] -> Stree -> SyntaxRule
+parseSyntaxRule :: [Symbol] -> Stree -> SyntaxRule
 parseSyntaxRule _ (Sxp [Sym _, template]) = SyntaxRule { pat = PatEmpty, template }
 parseSyntaxRule lits (Sxp [Sxp (_:tl), template]) = SyntaxRule { pat = evalState (parsePatternList tl) [], template }
   where
@@ -270,8 +285,9 @@ parseSyntaxRule lits (Sxp [Sxp (_:tl), template]) = SyntaxRule { pat = evalState
 
     parsePattern :: Stree -> State [Pattern] Pattern
     parsePattern pat = case pat of
-        _ | elem pat lits -> return $ PatLiteral pat
+        Sym sym | elem sym lits -> return $ PatLiteral pat
         Sym sym ->  return $ PatIdentifier sym
+        _ | isConst pat -> return $ PatLiteral pat
         Sxp pats -> do
           s <- get
           l <- put [] >> parsePatternList pats
@@ -281,8 +297,14 @@ parseSyntaxRule lits (Sxp [Sxp (_:tl), template]) = SyntaxRule { pat = evalState
 
 parseSyntaxRules :: Stree -> SyntaxRules
 parseSyntaxRules (Sxp (Sym "syntax-rules":(Sxp literals):rulessxp)) =
-  let rules = fmap (parseSyntaxRule literals) rulessxp in
-    SyntaxRules { literals, rules }
+  let
+    literals' = getLiterals literals
+    rules = fmap (parseSyntaxRule literals') rulessxp in
+    SyntaxRules { literals=literals', rules }
+  where
+    getLiterals :: [Stree] -> [Symbol]
+    getLiterals [] = []
+    getLiterals (Sym s:tl) = s:getLiterals tl
 
 useSome :: Matcher a -> Matcher a
 useSome pva = do
@@ -319,7 +341,7 @@ testPattern4 = PatListSome [PatIdentifier "a"]
                                             (PatIdentifier "d")])
 testSxp4 = Sxp [ Sym "a", Sxp[Sym "b", Sxp[Sym "c"]], Sxp[Sym "b", Sxp[Sym "c", Sym "d", Sym "d"]]]
 
-tryMatch ::Pattern -> Stree -> Maybe PVS
+tryMatch :: Pattern -> Stree -> Maybe PVS
 tryMatch p s = let (b, PV { patternVars }) = runState (runMatcher $ matches p s) (PV { patternVars = Map.empty, someSwitch = False }) in
   if b then Just patternVars else Nothing
   where
@@ -349,6 +371,85 @@ tryMatch p s = let (b, PV { patternVars }) = runState (runMatcher $ matches p s)
 
     -- The empty pattern always matches
     matches PatEmpty _ = return True
+
+-------------------------------------------------------------------------------
+-- Constructor
+-------------------------------------------------------------------------------
+testTemplate = Sxp [ Sym "a", Sym "...", Sym "b", Sym "..." ]
+testTemplate2 = Sxp [ Sxp[Sym "a", Sym "..."], Sxp[Sym "b", Sym "..."] ]
+testTemplate3 = Sxp [ Sxp[Sym "a", Sym "b"], Sym "..." ]
+
+
+
+parseTemplate :: [Symbol] -> Stree -> Template
+parseTemplate lits stree = case stree of
+  Sym _ | isNoVar stree -> TempLiteral stree
+  Sym s -> TempVar s
+  _ | isConst stree -> TempLiteral stree
+
+  Sxp l -> TempList $ parseTemplateList l
+  where
+    parseTemplateList :: [Stree] -> [Template]
+    parseTemplateList strees = case strees of
+      [] -> []
+      v@(Sym s):Sym "...":tl | isVar v -> TempSome (TempVar s):parseTemplateList tl
+      s@(Sxp _):Sym "...":tl -> TempSome (parseTemplate lits s):parseTemplateList tl
+      hd:tl -> parseTemplate lits hd:parseTemplateList tl
+
+    isNoVar :: Stree -> Bool
+    isNoVar (Sym s) = elem s lits
+    isNoVar _ = True
+
+    isVar = not . isNoVar
+
+getVar :: MonadState ConstructorState m => Symbol -> m PVValue
+getVar sym = do
+  cpvs <- gets cpatternVars
+  let maybestree = cpvs Map.!? sym
+  maybe (error "Didn't find var while constructing the template") return maybestree
+
+setSplice :: Constructor ()
+setSplice = do
+  modify $ \s -> s { spliceSwitch = True }
+
+unsetSplice :: Constructor ()
+unsetSplice = do
+  modify $ \s -> s { spliceSwitch = False }
+
+-- TODO to properly construct sexps, I need to store in what sequence a pattern var matched something in the input.
+-- Consider:
+-- (define-syntax test2
+--   (syntax-rules ()
+--     ((test (a b ...) ...) ((a b ...) ...))))
+-- (test2 (a b b b) (a b b)) -> ((a b b b) (a b b))
+
+construct :: Template -> Constructor Stree
+construct (TempLiteral lit) = return lit
+construct (TempVar v) = do
+  var <- getVar v
+  case var of
+    PVStree stree -> return stree
+    PVSome strees -> return $ Sxp strees
+
+construct (TempList l) = Sxp <$>  constructList l
+
+construct (TempSome (TempVar _)) = error "Variables followed by ... (Ellipses) must be inside a list"
+construct (TempSome (TempLiteral _)) = error "Literal can't be used with ... (Ellipses)"
+
+constructList :: [Template] -> Constructor [Stree]
+constructList (TempSome (TempVar v):tl) = do
+  PVSome v' <- getVar v
+  liftA2 (++) (return v') (constructList tl)
+
+-- constructList (TempSome (TempList l):tl) = do
+--   PVSome v' <- getVar v
+--   liftA2 (++) (return v') (constructList tl)
+
+constructList (TempSome (TempLiteral _):_) = error "Literal can't be used with ... (Ellipses)"
+
+constructList (hd:tl) = do
+  hd' <- construct hd
+  liftA2 (:) (return hd') (constructList tl)
 
 
 -------------------------------------------------------------------------------
