@@ -10,4 +10,4 @@ After that you can run:
 ```
 nix-shell && stack run -- -v
 ```
-Which will throw you into a repl. 
+Which will throw you into a repl with verbose output enabled. 
