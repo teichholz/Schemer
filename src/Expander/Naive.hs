@@ -3,7 +3,7 @@
 
 module Expander.Naive where
 
-import RIO hiding (ST)
+import RIO hiding (ST, Seq, seq)
 import RIO.State
 import RIO.List (initMaybe, lastMaybe)
 import RIO.Partial (fromJust)
@@ -64,16 +64,29 @@ data Pattern
   deriving (Show, Eq)
 
 type PatternVariable = (Symbol, Stree)
+type Seq = Int
 data PVValue
   = PVStree Stree
-  | PVSome [Stree]
+  | PVSome (Map [Seq] Stree)
   deriving (Show, Eq)
 
 type PVS = Map Symbol PVValue
-data PV = PV { patternVars :: PVS, someSwitch :: Bool }
+
+data SeqState = SeqState { seq :: Seq, seqs :: [Seq] }
+defaultSeqState = SeqState { seq = 1, seqs = [] }
+
+class Monad m => HasSeqState m where
+  getSeqState :: m SeqState
+  putSeqState :: SeqState -> m ()
+
+data PV = PV { patternVars :: PVS, someSwitch :: Bool, matSeqState :: SeqState }
 
 newtype Matcher a = Matcher { runMatcher :: State PV a }
   deriving (Functor, Applicative, Monad, MonadState PV)
+
+instance HasSeqState Matcher where
+  getSeqState = gets matSeqState
+  putSeqState seqs = modify $ \s -> s { matSeqState = seqs }
 
 -- Types for template F
 data Template
@@ -83,10 +96,14 @@ data Template
   | TempList [Template]
   deriving (Show, Eq)
 
-data ConstructorState = ConstructorState { cpatternVars :: PVS, spliceSwitch :: Bool }
+data ConstructorState = ConstructorState { cpatternVars :: PVS, spliceSwitch :: Bool, conSeqState :: SeqState }
 
 newtype Constructor a = Constructor { runConstructor :: State ConstructorState a }
   deriving (Functor, Applicative, Monad, MonadState ConstructorState)
+
+instance HasSeqState Constructor where
+  getSeqState = gets conSeqState
+  putSeqState seqs = modify $ \s -> s { conSeqState = seqs }
 
 -- Types for syntax-rules
 data SyntaxRules = SyntaxRules { literals :: [Symbol], rules :: [SyntaxRule] }
@@ -306,32 +323,16 @@ parseSyntaxRules (Sxp (Sym "syntax-rules":(Sxp literals):rulessxp)) =
     getLiterals [] = []
     getLiterals (Sym s:tl) = s:getLiterals tl
 
-useSome :: Matcher a -> Matcher a
-useSome pva = do
-  modify $ \s -> s { someSwitch = True }
-  a <- pva
-  modify $ \s -> s { someSwitch = False }
-  return a
-
-addPatternVar :: Symbol -> Stree -> Matcher ()
-addPatternVar sym stree = do
-  somep <- gets someSwitch
-  pvs <- gets patternVars
-  if not somep then
-    modify $ \s -> s { patternVars = Map.insert sym (PVStree stree) pvs }
-  else do
-    let f = \case
-               Nothing -> Just $ PVSome [stree]
-               Just (PVSome l) -> Just $ PVSome (l ++ [stree])
-               _ -> error "Pattern identifier are not allowed to share names"
-    modify $ \s -> s { patternVars = Map.alter f sym pvs }
-
 -- (_ x y ...)
 testPattern = PatListSome [PatIdentifier "x"] (PatIdentifier "y")
 testSxp = Sxp [ Sym "x", Sym "y", Sym "z"]
 -- (_ x (y z) ...)
 testPattern2 = PatListSome [PatIdentifier "x"] (PatList [PatIdentifier "y", PatIdentifier "z"])
 testSxp2 = Sxp [ Sym "x", Sxp[Sym "y", Sym "z"], Sxp[Sym "y", Sym "z"]]
+-- (_ a (b ...) ...)
+-- (_ a ((b) (b)) ((b b)))
+testPattern5 = PatListSome [PatIdentifier "a"] (PatListSome [] (PatIdentifier "b"))
+testSxp5 = Sxp [ Sym "a", Sxp[Sxp[Sym "b"], Sxp[Sym "b"]], Sxp[Sxp[Sym "b", Sym "b"]]]
 -- (_ x (y (z)) ...)
 testPattern3 = PatListSome [PatIdentifier "x"] (PatList [PatIdentifier "y", PatList[PatIdentifier "z"]])
 testSxp3 = Sxp [ Sym "x", Sxp[Sym "y", Sxp[Sym "z"]], Sxp[Sym "y", Sxp[Sym "z"]]]
@@ -341,8 +342,50 @@ testPattern4 = PatListSome [PatIdentifier "a"]
                                             (PatIdentifier "d")])
 testSxp4 = Sxp [ Sym "a", Sxp[Sym "b", Sxp[Sym "c"]], Sxp[Sym "b", Sxp[Sym "c", Sym "d", Sym "d"]]]
 
+useSome :: Matcher a -> Matcher a
+useSome pva = do
+  modify $ \s -> s { someSwitch = True }
+  a <- pva
+  modify $ \s -> s { someSwitch = False }
+  return a
+
+getSeq :: HasSeqState m => m Seq
+getSeq = seq <$> getSeqState
+
+getSeqs :: HasSeqState m => m [Seq]
+getSeqs = seqs <$> getSeqState
+
+putSeqs :: HasSeqState m => [Seq] -> m ()
+putSeqs seqs' = do
+  seqs <- getSeqState
+  putSeqState (seqs { seqs = seqs' })
+
+resetSeq :: HasSeqState m => m ()
+resetSeq = do
+  seqs <- getSeqState
+  putSeqState (seqs { seq = -1 })
+
+incSeq :: HasSeqState m => m ()
+incSeq = do
+  seqs <- getSeqState
+  putSeqState (seqs { seq = seq seqs + 1 })
+
+addPatternVar :: Symbol -> Stree -> Matcher ()
+addPatternVar sym stree = do
+  somep <- gets someSwitch
+  pvs <- gets patternVars
+  if not somep then
+    modify $ \s -> s { patternVars = Map.insert sym (PVStree stree) pvs }
+  else do
+    seqs <- getSeqs
+    let f = \case
+               Nothing -> Just $ PVSome $ Map.singleton seqs stree
+               Just (PVSome map) -> Just $ PVSome $ Map.insert seqs stree map
+               _ -> error "Pattern identifier are not allowed to share names"
+    modify $ \s -> s { patternVars = Map.alter f sym pvs }
+
 tryMatch :: Pattern -> Stree -> Maybe PVS
-tryMatch p s = let (b, PV { patternVars }) = runState (runMatcher $ matches p s) (PV { patternVars = Map.empty, someSwitch = False }) in
+tryMatch p s = let (b, PV { patternVars }) = runState (runMatcher $ matches p s) (PV { patternVars = Map.empty, someSwitch = False, matSeqState = defaultSeqState}) in
   if b then Just patternVars else Nothing
   where
     -- Pattern = P, Stree = F
@@ -364,8 +407,19 @@ tryMatch p s = let (b, PV { patternVars }) = runState (runMatcher $ matches p s)
     matches (PatListSome list some) (LitList l) =
       let inits = take (length list) l
           rest = drop (length list) l in
-        if length inits == length list then
-          liftA2 (&&) (and <$> zipWithM matches list inits) (and <$> useSome (mapM (matches some) rest))
+        if length inits == length list then do
+          mp <- and <$> zipWithM matches list inits
+          resetSeq
+          mp' <- useSome $ forM rest $ \r -> do
+            incSeq
+            seq <- getSeq
+            seqs <- getSeqs
+            b <- putSeqs (seqs ++ [seq]) >> matches some r
+            putSeqs seqs
+            return b
+
+
+          return $ mp && and mp'
         else
           return False
 
@@ -423,33 +477,33 @@ unsetSplice = do
 --     ((test (a b ...) ...) ((a b ...) ...))))
 -- (test2 (a b b b) (a b b)) -> ((a b b b) (a b b))
 
-construct :: Template -> Constructor Stree
-construct (TempLiteral lit) = return lit
-construct (TempVar v) = do
-  var <- getVar v
-  case var of
-    PVStree stree -> return stree
-    PVSome strees -> return $ Sxp strees
+-- construct :: Template -> Constructor Stree
+-- construct (TempLiteral lit) = return lit
+-- construct (TempVar v) = do
+--   var <- getVar v
+--   case var of
+--     PVStree stree -> return stree
+--     PVSome strees -> return $ Sxp strees
 
-construct (TempList l) = Sxp <$>  constructList l
+-- construct (TempList l) = Sxp <$>  constructList l
 
-construct (TempSome (TempVar _)) = error "Variables followed by ... (Ellipses) must be inside a list"
-construct (TempSome (TempLiteral _)) = error "Literal can't be used with ... (Ellipses)"
+-- construct (TempSome (TempVar _)) = error "Variables followed by ... (Ellipses) must be inside a list"
+-- construct (TempSome (TempLiteral _)) = error "Literal can't be used with ... (Ellipses)"
 
-constructList :: [Template] -> Constructor [Stree]
-constructList (TempSome (TempVar v):tl) = do
-  PVSome v' <- getVar v
-  liftA2 (++) (return v') (constructList tl)
-
--- constructList (TempSome (TempList l):tl) = do
+-- constructList :: [Template] -> Constructor [Stree]
+-- constructList (TempSome (TempVar v):tl) = do
 --   PVSome v' <- getVar v
 --   liftA2 (++) (return v') (constructList tl)
 
-constructList (TempSome (TempLiteral _):_) = error "Literal can't be used with ... (Ellipses)"
+-- -- constructList (TempSome (TempList l):tl) = do
+-- --   PVSome v' <- getVar v
+-- --   liftA2 (++) (return v') (constructList tl)
 
-constructList (hd:tl) = do
-  hd' <- construct hd
-  liftA2 (:) (return hd') (constructList tl)
+-- constructList (TempSome (TempLiteral _):_) = error "Literal can't be used with ... (Ellipses)"
+
+-- constructList (hd:tl) = do
+--   hd' <- construct hd
+--   liftA2 (:) (return hd') (constructList tl)
 
 
 -------------------------------------------------------------------------------

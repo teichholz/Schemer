@@ -21,4 +21,18 @@
          (with-syntax ([(e ...) (read-file fn (syntax k))])
            (syntax (begin e ...))))])))
 
-(include "defs.scm")
+;; (include "defs.scm")
+
+
+(define-syntax alist
+  (syntax-rules ()
+    ((test (a b) ...) (list (quote (a b)) ...))))
+
+
+(define-syntax test2
+  (syntax-rules ()
+    ((test (a (b ...) ...) ...) (list (quote (a (b ...) ...)) ...))))
+
+(define-syntax test3
+  (syntax-rules ()
+    ((_ a (b ...) ...) (a (b ...) ...))))
