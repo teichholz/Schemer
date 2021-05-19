@@ -6,6 +6,7 @@ module Expander.Naive where
 import RIO hiding (ST, Seq, seq)
 import RIO.State
 import RIO.List (initMaybe, lastMaybe)
+import RIO.List.Partial (head)
 import RIO.Partial (fromJust)
 import Prelude (print)
 import Types.Types (Sexp(..), ScEnv, Env(..))
@@ -14,6 +15,7 @@ import Sexp.Literals
 import qualified RIO.Map as Map
 import RIO.State (State)
 import RIO.List (stripPrefix)
+import Data.Foldable (maximum)
 
 -------------------------------------------------------------------------------
 -- Types
@@ -73,7 +75,7 @@ data PVValue
 type PVS = Map Symbol PVValue
 
 data SeqState = SeqState { seq :: Seq, seqs :: [Seq] }
-defaultSeqState = SeqState { seq = 1, seqs = [] }
+defaultSeqState = SeqState { seq = -1, seqs = [] }
 
 class Monad m => HasSeqState m where
   getSeqState :: m SeqState
@@ -322,6 +324,7 @@ parseSyntaxRules (Sxp (Sym "syntax-rules":(Sxp literals):rulessxp)) =
     getLiterals :: [Stree] -> [Symbol]
     getLiterals [] = []
     getLiterals (Sym s:tl) = s:getLiterals tl
+parseSyntaxRules _ = error "Wrong syntax-rules"
 
 -- (_ x y ...)
 testPattern = PatListSome [PatIdentifier "x"] (PatIdentifier "y")
@@ -384,6 +387,8 @@ addPatternVar sym stree = do
                _ -> error "Pattern identifier are not allowed to share names"
     modify $ \s -> s { patternVars = Map.alter f sym pvs }
 
+
+
 tryMatch :: Pattern -> Stree -> Maybe PVS
 tryMatch p s = let (b, PV { patternVars }) = runState (runMatcher $ matches p s) (PV { patternVars = Map.empty, someSwitch = False, matSeqState = defaultSeqState}) in
   if b then Just patternVars else Nothing
@@ -433,8 +438,6 @@ testTemplate = Sxp [ Sym "a", Sym "...", Sym "b", Sym "..." ]
 testTemplate2 = Sxp [ Sxp[Sym "a", Sym "..."], Sxp[Sym "b", Sym "..."] ]
 testTemplate3 = Sxp [ Sxp[Sym "a", Sym "b"], Sym "..." ]
 
-
-
 parseTemplate :: [Symbol] -> Stree -> Template
 parseTemplate lits stree = case stree of
   Sym _ | isNoVar stree -> TempLiteral stree
@@ -456,11 +459,6 @@ parseTemplate lits stree = case stree of
 
     isVar = not . isNoVar
 
-getVar :: MonadState ConstructorState m => Symbol -> m PVValue
-getVar sym = do
-  cpvs <- gets cpatternVars
-  let maybestree = cpvs Map.!? sym
-  maybe (error "Didn't find var while constructing the template") return maybestree
 
 setSplice :: Constructor ()
 setSplice = do
@@ -470,6 +468,12 @@ unsetSplice :: Constructor ()
 unsetSplice = do
   modify $ \s -> s { spliceSwitch = False }
 
+getVar :: MonadState ConstructorState m => Symbol -> m PVValue
+getVar sym = do
+  cpvs <- gets cpatternVars
+  let maybestree = cpvs Map.!? sym
+  maybe (error "Didn't find var while constructing the template") return maybestree
+
 -- TODO to properly construct sexps, I need to store in what sequence a pattern var matched something in the input.
 -- Consider:
 -- (define-syntax test2
@@ -477,33 +481,78 @@ unsetSplice = do
 --     ((test (a b ...) ...) ((a b ...) ...))))
 -- (test2 (a b b b) (a b b)) -> ((a b b b) (a b b))
 
--- construct :: Template -> Constructor Stree
--- construct (TempLiteral lit) = return lit
--- construct (TempVar v) = do
---   var <- getVar v
---   case var of
---     PVStree stree -> return stree
---     PVSome strees -> return $ Sxp strees
 
--- construct (TempList l) = Sxp <$>  constructList l
+getCountOfTemplate :: Int -> [[Seq]] -> Int
+getCountOfTemplate _ [] = 0
+getCountOfTemplate depth l@(hd:_)
+  | depth > length hd = error "invalid depth" -- the depth of a var doesn't change, so we just check the head
+  | otherwise = maximum $ fmap (head . drop depth) l
 
--- construct (TempSome (TempVar _)) = error "Variables followed by ... (Ellipses) must be inside a list"
--- construct (TempSome (TempLiteral _)) = error "Literal can't be used with ... (Ellipses)"
+getVarInList :: Template -> Maybe Symbol
+getVarInList (TempVar v) = Just v
+getVarInList (TempList []) = Nothing
+getVarInList (TempList (hd:tl)) = getVarInList hd <|> fix (\rec -> \case
+                                                              [] -> Nothing
+                                                              (hd:tl)-> getVarInList hd <|> rec tl) tl
+getVarInList (TempSome t) = getVarInList t
+getVarInList (TempLiteral _) = Nothing
 
--- constructList :: [Template] -> Constructor [Stree]
--- constructList (TempSome (TempVar v):tl) = do
---   PVSome v' <- getVar v
---   liftA2 (++) (return v') (constructList tl)
+construct :: Template -> Constructor Stree
+construct (TempLiteral lit) = return lit
+construct (TempVar v) = do
+  var <- getVar v
+  case var of
+    PVStree stree -> return stree
+    PVSome _ -> error "Error ... can only be used in lists"
+construct (TempSome (TempVar _)) = error "Variables followed by ... (Ellipses) must be inside a list"
+construct (TempSome (TempLiteral _)) = error "Literal can't be used with ... (Ellipses)"
 
--- -- constructList (TempSome (TempList l):tl) = do
--- --   PVSome v' <- getVar v
--- --   liftA2 (++) (return v') (constructList tl)
+construct (TempList l) = Sxp <$>  constructList l
 
--- constructList (TempSome (TempLiteral _):_) = error "Literal can't be used with ... (Ellipses)"
 
--- constructList (hd:tl) = do
---   hd' <- construct hd
---   liftA2 (:) (return hd') (constructList tl)
+constructList :: [Template] -> Constructor [Stree]
+constructList (TempVar v:tl) = do
+  seqs <- getSeqs
+  PVSome var <- getVar v
+  let var' = var Map.!? seqs
+      var'' = maybe (error "Var not found") return var'
+
+  liftA2 (:) var'' (constructList tl)
+
+constructList (TempSome (TempVar v):tl) = do
+  seq <- getSeq
+  seqs <- getSeqs
+  PVSome var <- getVar v
+  let vars = Map.assocs var -- [([Seq], Stree)]
+      count = getCountOfTemplate seq (fmap fst vars) -- how many vars do we take?
+      seqs' = fmap (\i -> seqs++[i]) [0..(count-1)]  -- with which [Seq] do we take vars?
+      vars' = filter (\(seq, _) -> elem seq seqs') vars -- take only the vars at the right position
+      vars'' = fmap snd vars' -- remove the [Seq], getting only the Stree
+
+  liftA2 (++) (return vars'') (constructList tl)
+
+constructList (TempSome t@(TempList l):tl) = do
+  let var = maybe (error "No var in template") id (getVarInList t)
+  PVSome var' <- getVar var
+  seq <- getSeq
+  seqs <- getSeqs
+  let vars = Map.assocs var'
+      count = getCountOfTemplate seq (fmap fst vars)
+  incSeq
+  lists <- forM [0..count-1] $ \pos -> do
+    putSeqs $ seqs++[pos]
+    constructList l
+  putSeqs seqs
+  resetSeq
+  let lists' = concat lists
+
+  liftA2 (++) (return lists') (constructList tl)
+
+constructList (TempSome (TempLiteral _):_) = error "Literal can't be used with ... (Ellipses)"
+
+constructList (hd:tl) = do
+  hd' <- construct hd
+  liftA2 (:) (return hd') (constructList tl)
 
 
 -------------------------------------------------------------------------------
