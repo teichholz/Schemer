@@ -8,6 +8,6 @@ git clone https://github.com/teichholz/Schemer && cd Schemer
 ```
 After that you can run:
 ```
-nix-shell && stack run
+nix-shell && stack run -- -v
 ```
-Which will throw you into a repl. 
+Which will throw you into a repl with verbose output enabled. 
