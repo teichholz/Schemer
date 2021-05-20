@@ -45,6 +45,9 @@ overloaded = ["+", "*", "make-string", "make-vector"]
 class IsVarName a where
   getName :: a -> Name
 
+instance IsVarName String where
+  getName = fromString
+
 instance IsVarName Name where
   getName = id
 
