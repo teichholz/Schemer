@@ -10,6 +10,7 @@ import qualified RIO.Map as Map
 import Expander.Matcher (PVS, PVValue(..))
 import Expander.Ast
 import Expander.Seq
+import Utils.NameResolver (isPrim)
 
 
 data Template
@@ -35,23 +36,24 @@ instance MonadFail Constructor
 -- Parser
 -------------------------------------------------------------------------------
 
-parseTemplate :: [Symbol] -> Stree -> Template
-parseTemplate lits stree = case stree of
+parse :: [Symbol] -> Stree -> Template
+parse lits stree = case stree of
   Sym _ | isNoVar stree -> TempLiteral stree
   Sym s -> TempVar s
   _ | isConst stree -> TempLiteral stree
 
-  Sxp l -> TempList $ parseTemplateList l
+  Sxp l -> TempList $ parseList l
   where
-    parseTemplateList :: [Stree] -> [Template]
-    parseTemplateList strees = case strees of
+    parseList :: [Stree] -> [Template]
+    parseList strees = case strees of
       [] -> []
-      v@(Sym s):Sym "...":tl | isVar v -> TempSome (TempVar s):parseTemplateList tl
-      s@(Sxp _):Sym "...":tl -> TempSome (parseTemplate lits s):parseTemplateList tl
-      hd:tl -> parseTemplate lits hd:parseTemplateList tl
+      (Sym "quote"):_ -> fmap TempLiteral strees
+      v@(Sym s):Sym "...":tl | isVar v -> TempSome (TempVar s):parseList tl
+      s@(Sxp _):Sym "...":tl -> TempSome (parse lits s):parseList tl
+      hd:tl -> parse lits hd:parseList tl
 
     isNoVar :: Stree -> Bool
-    isNoVar (Sym s) = s `elem` lits
+    isNoVar (Sym s) = s `elem` lits || isPrim s
     isNoVar _ = True
 
     isVar = not . isNoVar
@@ -64,7 +66,9 @@ getVar :: Symbol -> Constructor PVValue
 getVar sym = do
   cpvs <- gets cpatternVars
   let maybestree = cpvs Map.!? sym
-  maybe (error "Didn't find var while constructing the template") return maybestree
+  maybe
+    (error $ "Didn't find var while constructing the template: " <> "Searched for: " <> show sym <> " Vars are: " <> show cpvs)
+    return maybestree
 
 
 getCountOfTemplate :: Int -> [[Seq]] -> Int
@@ -152,20 +156,20 @@ construct t pvs =
 -------------------------------------------------------------------------------
 
 -- (b ...)
-testTemplate = parseTemplate [] (Sxp [ Sym "b", Sym "..." ])
+testTemplate = parse [] (Sxp [ Sym "b", Sym "..." ])
 testPVS = Map.fromList [("b", b)]
   where
     b = PVSome $ Map.fromList [([0], Sym "b"), ([1], Sym "b"), ([2], Sym "b"), ([3], Sym "b")]
 
 -- ((a b) ...)
-testTemplate2 = parseTemplate [] (Sxp [ Sxp [ Sym "a", Sym "b" ], Sym "..." ])
+testTemplate2 = parse [] (Sxp [ Sxp [ Sym "a", Sym "b" ], Sym "..." ])
 testPVS2 = Map.fromList [("a", a), ("b", b)]
   where
     a = PVSome $ Map.fromList [([0], Sym "a"), ([1], Sym "a"), ([2], Sym "a"), ([3], Sym "a")]
     b = PVSome $ Map.fromList [([0], Sym "b"), ([1], Sym "b"), ([2], Sym "b"), ([3], Sym "b")]
 
 -- (a ... b ...)
-testTemplate3 = parseTemplate [] (Sxp [ Sym "a", Sym "...", Sym "b", Sym "..." ])
+testTemplate3 = parse [] (Sxp [ Sym "a", Sym "...", Sym "b", Sym "..." ])
 testPVS3 = Map.fromList [("a", a), ("b", b)]
   where
     a = PVSome $ Map.fromList [([0], Sym "a"), ([1], Sym "a"), ([2], Sym "a"), ([3], Sym "a")]
@@ -174,7 +178,7 @@ testPVS3 = Map.fromList [("a", a), ("b", b)]
 -- ((b ...) ...)
 -- ((b b) (b))
 -- b: [00=b, 01=b, 10=b]
-testTemplate4 = parseTemplate [] (Sxp [ Sxp [Sym "b", Sym "..."], Sym "..."])
+testTemplate4 = parse [] (Sxp [ Sxp [Sym "b", Sym "..."], Sym "..."])
 testPVS4 = Map.fromList [("b", b)]
   where
     b = PVSome $ Map.fromList [([0,0], Sym "b"), ([0,1], Sym "b"), ([1,0], Sym "b")]

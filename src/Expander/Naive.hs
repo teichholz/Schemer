@@ -27,17 +27,17 @@ import qualified Expander.Constructor as Constructor
 data ST = ST { bindings :: Bindings, vars :: [Symbol] }
 -- MStree -> Stree
 -- Syntax transformer function
-type STF = MStree -> Stree
+type STF = Stree -> Stree
 type Bindings = Map Symbol STF
 
 -- The main driver used for transcription of syntactic extensions
 newtype Expander a = Expander { runExpander :: StateT ST IO a }
   deriving (Functor, Applicative, Monad, MonadState ST, MonadIO, MonadThrow)
 
-data SyntaxRules = SyntaxRules { literals :: [Symbol], rules :: [SyntaxRule] }
+data SyntaxRules = SyntaxRules { rules :: [SyntaxRule] }
   deriving (Show, Eq)
 
-data SyntaxRule = SyntaxRule { pat :: Matcher.Pattern, template :: Stree }
+data SyntaxRule = SyntaxRule { pat :: Matcher.Pattern, template :: Constructor.Template }
   deriving (Show, Eq)
 -------------------------------------------------------------------------------
 -- ST Setup
@@ -45,40 +45,43 @@ data SyntaxRule = SyntaxRule { pat :: Matcher.Pattern, template :: Stree }
 defaultBindings :: Bindings
 defaultBindings = Map.fromList [("or", or), ("and", and), ("begin", begin), ("define", define)]
   where
-    or :: MStree -> Stree
-    or (SynExtId _) = error "invalid synext"
-    or (SynExtApp _ []) = F
-    or (SynExtApp _ [e]) = e
-    or (SynExtApp _ (e:es)) = If e e (MStree $ SynExtApp "or" es)
+    or :: Stree -> Stree
+    or (Sxp []) = F
+    or (Sxp [e]) = e
+    or (Sxp (e:es)) = If e e (Sxp (Sym "or": es))
+    or _ = error "invalid synext"
 
-    and :: MStree -> Stree
-    and (SynExtId _) = error "invalid synext"
-    and (SynExtApp _ []) = T
-    and (SynExtApp _ [e]) = e
-    and (SynExtApp _ (e:es)) = If e (MStree $ SynExtApp "and" es) F
+    and :: Stree -> Stree
+    and (Sxp []) = T
+    and (Sxp [e]) = e
+    and (Sxp (e:es)) = If e (Sxp (Sym "and": es)) F
+    and _ = error "invalid synext"
 
-    begin :: MStree -> Stree
-    begin (SynExtId _) = error "invalid synext"
-    begin (SynExtApp _ []) = error "invalid synext"
-    begin (SynExtApp _ [e]) = e
-    begin (SynExtApp _ (e:es)) = Let [Bind "l" e] (MStree $ SynExtApp "let" es)
+    begin :: Stree -> Stree
+    begin (Sxp []) = error "invalid synext"
+    begin (Sxp [e]) = e
+    begin (Sxp (e:es)) = Let [Bind "l" e] (Sxp (Sym "let": es))
+    begin _ = error "invalid synext"
 
-    define :: MStree -> Stree
-    define (SynExtId _) = error "invalid synext"
-    define (SynExtApp _ [d@(Define (Sym _) _)]) = d
-    define (SynExtApp _ [Define (Sxp (name:args)) expr]) = Define name (Lambda (Sxp args) expr)
-    define (SynExtApp _ _) = error "invalid synext"
+    define :: Stree -> Stree
+    define (Sxp [v@(Sym _), body]) = Define v body
+    define (Sxp [Sxp [name, args], body]) = Define name (Lambda args body)
+    define _ = error "invalid synext"
 
 defaultST :: ST
 defaultST = ST { bindings = defaultBindings, vars = [] }
 -------------------------------------------------------------------------------
 -- ST functions
 -------------------------------------------------------------------------------
+isBound :: Bindings -> Symbol ->  Bool
+isBound = flip Map.member
+
 getBinding :: Symbol -> Expander (Maybe STF)
 getBinding sym = do
   bs <- gets bindings
   return $ bs Map.!? sym
 
+-- Adds or overwrites a binding
 addBinding :: Symbol -> STF -> Expander ()
 addBinding sym stf = do
   bindings <- gets bindings
@@ -111,11 +114,6 @@ syntaxError str = throwM $ ExpandException str
 -------------------------------------------------------------------------------
 -- Predicates
 -------------------------------------------------------------------------------
-isMactok :: Text -> Bool
-isMactok = flip elem mactok
-  where
-    mactok :: [Text]
-    mactok = ["or", "begin", "and", "define"]
 
 -------------------------------------------------------------------------------
 -- Parser
@@ -132,20 +130,16 @@ parseLit = \case
 -- Most primitive Scheme parser which can be used for interpreters
 parse :: Sexp -> IO Stree
 parse sxp = case sxp of
-  List (Atom e:es) | isMactok e -> MStree . SynExtApp (parseLiteral varLiteral e) <$> parseList es
   List(Atom "vec":tl) -> LitVec . (LitSymbol "vec":) <$> parseList tl
-  List [] -> return LitNil
+  List [] -> return $ LitList []
   List es -> LitList <$> parseList es
   Atom _ -> case sxp of
-    Atom x | isMactok x -> return $ MStree . SynExtId $ parseLiteral varLiteral x
     Atom x | isName x-> return $ LitSymbol (parseLiteral varLiteral x)
     Atom _ ->  parseLit sxp
   where
     parseList :: [Sexp] -> IO [Stree]
     parseList sxps = case sxps of
-      [tl] -> do
-        tl <- parse tl
-        return [tl]
+      [] -> return []
 
       -- TODO handle these right
       [Atom ".", tl] -> do
@@ -158,28 +152,21 @@ parse sxp = case sxp of
         return $ hd:tl
 
 
-testRule = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sym "or", Sym "and"]]
-testRule2 = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sxp [Sym "or", Sym "x"], Sym "and"]]
-testRule3 = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sxp [Sym "or", Sym "x", Sym "y", Sym "..."], Sym "and"]]
-testRule4 = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sxp [Sym "or", Sxp [Sym "a", Sym "b"], Sym "..."], Sym "and"]]
-testRule5 = Sxp [Sym "syntax-rules", Sxp [Sym "x"], Sxp [Sxp [Sym "or", Sym "c", Sxp [Sym "a", Sym "b"], Sym "..."], Sym "and"]]
-
--- We ignore the head of each rule, since they always match
-parseSyntaxRule :: [Symbol] -> Stree -> SyntaxRule
-parseSyntaxRule _ (Sxp [Sym _, template]) = SyntaxRule { pat = Matcher.PatEmpty, template }
-parseSyntaxRule lits (Sxp [Sxp (_:tl), template]) = SyntaxRule { pat = Matcher.parse lits tl, template }
-
-
 parseSyntaxRules :: Stree -> SyntaxRules
 parseSyntaxRules (Sxp (Sym "syntax-rules":(Sxp literals):rulessxp)) =
   let
     literals' = getLiterals literals
     rules = fmap (parseSyntaxRule literals') rulessxp in
-    SyntaxRules { literals=literals', rules }
+    SyntaxRules { rules }
   where
     getLiterals :: [Stree] -> [Symbol]
     getLiterals [] = []
     getLiterals (Sym s:tl) = s:getLiterals tl
+
+    parseSyntaxRule :: [Symbol] -> Stree -> SyntaxRule
+    parseSyntaxRule _ (Sxp [Sym _, template]) = SyntaxRule { pat = Matcher.PatEmpty, template = Constructor.parse [] template }
+    parseSyntaxRule lits (Sxp [Sxp (_:tl), template]) = SyntaxRule { pat = Matcher.parse lits tl, template = Constructor.parse lits template }
+    parseSyntaxRule _ _ = error "Wrong syntax rule"
 parseSyntaxRules _ = error "Wrong syntax-rules"
 
 -------------------------------------------------------------------------------
@@ -190,13 +177,11 @@ getVarsFromBind :: [Stree] -> [Stree]
 getVarsFromBind [] = []
 getVarsFromBind (Bind v _:tl) = Sym v:getVarsFromBind tl
 
-getMacro :: MStree -> Expander (Maybe STF)
-getMacro (SynExtId sym) = getBinding sym
-getMacro (SynExtApp sym _) = getBinding sym
-
 e :: Stree -> Expander Stree
 e s = do
   vars' <- gets vars
+  bindings <- gets bindings
+  let isMacro = isBound bindings
   case s of
     -- Constants
     LitSymbol v | v `elem` vars' -> return s
@@ -206,14 +191,14 @@ e s = do
 
     -- define-syntax
     DefineSyntax name transformerSpec -> do
-      addBinding name (makeSTF transformerSpec)
+      addBinding name (makeSTF $ parseSyntaxRules transformerSpec)
       return Deleted
 
     -- Macros
-    MStree mstree -> do
-      sf <- getMacro mstree
+    App (Sym synext) tl | isMacro synext -> do
+      sf <- getBinding synext
       -- if sf is Nothing then error else e (sf mstree)
-      maybe (syntaxError "Macro not found") e (sf <*> Just mstree)
+      maybe (syntaxError "Macro not found") e (sf <*> Just (Sxp tl))
 
     -- Binding forms
     -- Define
@@ -239,10 +224,21 @@ e s = do
     -- If
     If tst thn els -> liftA3 If (e tst) (e thn) (e els)
 
+    _ -> error $ "Error: e: Found: " <> show s
 
 
-makeSTF :: Stree -> STF
-makeSTF = error "not implemented"
+
+makeSTF :: SyntaxRules -> STF
+makeSTF SyntaxRules { rules } = \sxp ->
+  let maybematch = findMatchingRule sxp rules in
+    fromMaybe (error "No Pattern matched") maybematch
+  where
+    findMatchingRule :: Stree -> [SyntaxRule] -> Maybe Stree
+    findMatchingRule sxp (SyntaxRule { pat, template }:tl) =
+      let pvs = Matcher.tryMatch pat sxp in
+      Constructor.construct template <$> pvs <|> findMatchingRule sxp tl
+
+
 
 runExpand :: Expander a -> IO a
 runExpand expander = evalStateT (runExpander expander) defaultST
@@ -274,6 +270,7 @@ expand = do
   sexps <- readSomeRef sexpsref
 
   strees <- liftIO $ forM sexps parse
+  logInfo "Parsed Expressions:"
   liftIO $ forM_ strees print
   strees' <- liftIO $ runExpand $ forM strees e
   let strees'' = filter (/= Deleted) strees'

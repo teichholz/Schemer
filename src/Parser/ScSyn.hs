@@ -113,7 +113,6 @@ parseExpr = \case
     _ -> throwM $ ParseException "Wrong application"
 
   Atom x -> parseAtom (Atom x)
-  List[] -> return makeNil
 
 
   _ -> throwM $ ParseException "Wrong expression"
@@ -182,6 +181,7 @@ parseArgs args = evalStateT (go args) []
 parseQuote :: Sexp -> IO Literal
 parseQuote sxp = case sxp of
   List(Atom "vec":tl) -> LitVector <$> parseList tl
+  List[] -> return LitNil
   List es -> LitList <$> parseList es
   Atom _ -> case sxp of
     Atom x | isName x -> return $ LitSymbol (parseLiteral varLiteral x)
@@ -189,9 +189,7 @@ parseQuote sxp = case sxp of
   where
     parseList :: [Sexp] -> IO [Literal]
     parseList sxps = case sxps of
-      [tl] -> do
-        tl <- parseQuote tl
-        return [tl, LitNil]
+      [] -> return []
 
       [Atom ".", tl] -> do
         tl <- parseQuote tl

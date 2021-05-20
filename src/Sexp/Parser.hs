@@ -52,7 +52,7 @@ isStringAtom :: Char -> Bool
 isStringAtom = (`notElem` ['\n', '\"'])
 
 list :: Parser Sexp -> Parser Sexp
-list ps = List <$> parens (M.some ps)
+list ps = List <$> parens (M.many ps) -- many encount for empty list () (not nil)
 
 modifier :: Parser (Sexp -> Sexp)
 modifier = do
@@ -92,7 +92,7 @@ quoted :: Parser (Sexp -> Sexp)
 quoted = shortcut "'" "quote"
 
 nil :: Parser Sexp
-nil = lexeme $ fmap (const $ List[]) (string "'()")
+nil = lexeme $ fmap (const $ List[Atom "quote", List[]]) (string "'()")
 
 -------------------------------------------------------------------------------
 -- Quasiquotes
@@ -186,3 +186,9 @@ qq4T :: Text
 qq4T = [r| `(1 2 3 ,@(1 2) ,(+ 1 2) ',name) |]
 
 test = parseTest sexps
+
+df :: Text
+df = [r|
+(define-syntax alist ()
+  (_ (a b) ...) (list (list a b) ...))
+|]

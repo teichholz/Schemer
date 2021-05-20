@@ -157,7 +157,7 @@ instance ToName Name where
 instance ToName Int where
   toName = fromString . show
 
-instance ToName String  where
+instance ToName String where
   toName = fromString
 
 instance ToName Text where
