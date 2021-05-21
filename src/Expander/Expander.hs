@@ -26,9 +26,6 @@ import RIO.Partial (succ)
 
 
 -- Syntax Table
-
-type Rename = (Symbol, TSVar)
-
 data ST = ST { bindings :: Bindings, vars :: [Symbol], timestamp :: Timestamp  }
 
 -- MStree -> Stree
@@ -182,47 +179,53 @@ freshName (var, timestamp) = var <> show timestamp
 -- Converts vars to timestamped vars. We need to differ between vars and symbols.
 t :: Stree -> (Symbol -> Expander TSVar) -> Expander Stree
 t stree f = do
-  isAnv <- atomicNonVar stree
-  isVar <- isVar stree
-  case stree of
-    _ | isAnv -> return stree
-    _ | isVar  -> let Sym var = stree in TSVar <$> f var
-    _ | isConst stree -> return stree
+  stree' <- t stree f
+  incTimestamp
+  return stree'
+  where
+    t :: Stree -> (Symbol -> Expander TSVar) -> Expander Stree
+    t stree f = do
+      isAnv <- atomicNonVar stree
+      isVar <- isVar stree
+      case stree of
+        _ | isAnv -> return stree
+        _ | isVar  -> let Sym var = stree in TSVar <$> f var
+        _ | isConst stree -> return stree
 
-    -- Binding forms
-    -- Define
-    Define arg expr -> do
-      addVar arg
-      expr' <- t expr f
-      return $ Define arg expr'
+        -- Binding forms
+        -- Define
+        Define arg expr -> do
+          addVar arg
+          expr' <- t expr f
+          return $ Define arg expr'
 
-    -- Normal lambda and dotted lambda
-    Lambda (Sxp args) (Sxp es) -> do
-      (args', es') <- withVars args $ do
-        liftA2 (,) (mapM (`t` f) args) (mapM (`t` f) es)
+        -- Normal lambda and dotted lambda
+        Lambda (Sxp args) (Sxp es) -> do
+          (args', es') <- withVars args $ do
+            liftA2 (,) (mapM (`t` f) args) (mapM (`t` f) es)
 
-      return $ Lambda (Sxp args') (Sxp es')
-    -- List lambda
-    Lambda arg (Sxp es) -> do
-      (arg', es') <- withVars [arg] $ do
-        liftA2 (,) (t arg f) (forM es (`t` f))
+          return $ Lambda (Sxp args') (Sxp es')
+        -- List lambda
+        Lambda arg (Sxp es) -> do
+          (arg', es') <- withVars [arg] $ do
+            liftA2 (,) (t arg f) (forM es (`t` f))
 
-      return $ Lambda arg' (Sxp es')
-    -- Let
-    Let bnd (Sxp es) -> do
-      let vars = getVarsFromBind bnd
-          exprs = getExprsFromBind bnd
+          return $ Lambda arg' (Sxp es')
+        -- Let
+        Let bnd (Sxp es) -> do
+          let vars = getVarsFromBind bnd
+              exprs = getExprsFromBind bnd
 
-      (vars', es') <- withVars vars $ do
-        liftA2 (,) (mapM (`t` f) vars) (forM es (`t` f))
+          (vars', es') <- withVars vars $ do
+            liftA2 (,) (mapM (`t` f) vars) (forM es (`t` f))
 
-      exprs' <- mapM (`t` f) exprs
+          exprs' <- mapM (`t` f) exprs
 
-      let bnd' = zipWith Bind vars' exprs'
-      return $ Let bnd' (Sxp es')
+          let bnd' = zipWith Bind vars' exprs'
+          return $ Let bnd' (Sxp es')
 
-    -- recur everything else
-    (Sxp es) -> Sxp <$> mapM (`t` f) es
+        -- recur everything else
+        (Sxp es) -> Sxp <$> mapM (`t` f) es
 
 s :: Symbol -> Expander TSVar
 s var = do
@@ -247,41 +250,41 @@ subst p@(sym, tsvar) stree = do
 
 
 -- Creates fresh names from timestamped variables
+-- We need to only substitute bound variables
 a :: Stree -> Expander Stree
 a stree = do
   var <- isVar stree
   anv <- atomicNonVar stree
   quote <- isQuoted stree
   case stree of
-    TSVar v -> return $ Sym (freshName v)
     _ | var || anv || quote -> return stree
 
-    -- Lambda (Sxp args) body -> do
-    --   args' <- forM args $ \case
-    --     TSVar arg -> do
-    --       let gen = freshName arg
-    --       return (gen, arg)
-    --     e -> error ("Error: a: Expected TSVar in argument list, but got: " <> show e)
-    --   let newargs = Sym <$> fmap fst args'
-    --   newbody <- foldrM subst body args'
-    --   Lambda (Sxp newargs) <$> a newbody
+    Lambda (Sxp args) body -> do
+      args' <- forM args $ \case
+        TSVar arg -> do
+          let gen = freshName arg
+          return (gen, arg)
+        e -> error ("Error: a: Expected TSVar in argument list, but got: " <> show e)
+      let newargs = Sym <$> fmap fst args'
+      newbody <- foldrM subst body args'
+      Lambda (Sxp newargs) <$> a newbody
 
-    -- Lambda (TSVar arg) body -> do
-    --   let newarg = freshName arg
-    --   newbody <- subst (newarg, arg) body
-    --   Lambda (Sym newarg) <$> a newbody
+    Lambda (TSVar arg) body -> do
+      let newarg = freshName arg
+      newbody <- subst (newarg, arg) body
+      Lambda (Sym newarg) <$> a newbody
 
-    -- Let binding body -> do
-    --   let vars = getVarsFromBind binding
-    --       exprs = getExprsFromBind binding
-    --   args' <- forM vars $ \case
-    --     TSVar arg -> do
-    --       let gen = freshName arg
-    --       return (gen, arg)
-    --     e -> error ("Error: a: Expected TSVar in variable list, but got: " <> show e)
-    --   let newargs = fmap (Sym . fst) args'
-    --   newbody <- foldrM subst body args'
-    --   Let (zipWith Bind newargs exprs) <$> a newbody
+    Let binding body -> do
+      let vars = getVarsFromBind binding
+          exprs = getExprsFromBind binding
+      args' <- forM vars $ \case
+        TSVar arg -> do
+          let gen = freshName arg
+          return (gen, arg)
+        e -> error ("Error: a: Expected TSVar in variable list, but got: " <> show e)
+      let newargs = fmap (Sym . fst) args'
+      newbody <- foldrM subst body args'
+      Let (zipWith Bind newargs exprs) <$> a newbody
 
     -- recur everything else
     Sxp es -> Sxp <$> mapM a es
@@ -363,10 +366,9 @@ parseSyntaxRules _ = error "Wrong syntax-rules"
 eHyg :: Stree -> Expander Stree
 eHyg stree = do
   timestamped <- t stree s
-  incTimestamp
   expanded <- e timestamped
-  case expanded of
-    Deleted -> return Deleted
+  case ((`t` s) >=> e) stree of
+    _ | timestamped == expanded -> return stree
     _ -> (a >=> u) expanded
 
 e :: Stree -> Expander Stree
@@ -391,9 +393,7 @@ e stree = do
       sf <- getBinding synext
       -- if sf is Nothing then error else sf mstree
       let transcription = fromMaybe (error "Macro not found") (sf <*> Just (Sxp tl))
-      timestamped <- t transcription s
-      incTimestamp
-      e timestamped
+      ((`t` s) >=> e) transcription
 
     Sxp es -> Sxp <$> mapM e es
 
