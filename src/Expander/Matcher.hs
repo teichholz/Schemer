@@ -125,15 +125,8 @@ tryMatch p s = let (b, PV { patternVars }) = runState (runMatcher $ matches p s)
           rest = drop (length list) l in
         if length inits == length list then do
           mp <- and <$> zipWithM matches list inits
-          resetSeq
-          mp' <- useSome $ forM rest $ \r -> do
-            incSeq
-            seq <- getSeq
-            seqs <- getSeqs
-            b <- putSeqs (seqs ++ [seq]) >> matches some r
-            putSeqs seqs
-            return b
-
+          mp' <- useSome $ forM (zip [0..] rest) $ \(i, r) -> do
+            modifySeqsTemporarily (++ [i]) $ matches some r
 
           return $ mp && and mp'
         else

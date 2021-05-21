@@ -11,7 +11,7 @@ import Cli (getCLIInput)
 import Repl (repl)
 
 import qualified Sexp.Parser as Sexp
-import qualified Expander.Naive as Expander
+import qualified Expander.Expander as Expander
 import qualified Parser.ScSyn as ScSyn
 import qualified Phases.Toplevel as Top
 import qualified Phases.Simplify as Sim

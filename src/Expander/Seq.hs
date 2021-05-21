@@ -20,17 +20,30 @@ getSeq = seq <$> getSeqState
 getSeqs :: HasSeqState m => m [Seq]
 getSeqs = seqs <$> getSeqState
 
-putSeqs :: HasSeqState m => [Seq] -> m ()
-putSeqs seqs' = do
-  seqs <- getSeqState
-  putSeqState (seqs { seqs = seqs' })
+modifySeqTemporarily :: HasSeqState m => (Seq -> Seq) -> m a -> m a
+modifySeqTemporarily f ma = do
+  seqS <- getSeqState
+  modifySeq f
+  a <- ma
+  putSeqState seqS
+  return a
 
-resetSeq :: HasSeqState m => m ()
-resetSeq = do
-  seqs <- getSeqState
-  putSeqState (seqs { seq = -1 })
+modifySeqsTemporarily :: HasSeqState m => ([Seq] -> [Seq]) -> m a -> m a
+modifySeqsTemporarily f ma = do
+  seqS <- getSeqState
+  modifySeqs f
+  a <- ma
+  putSeqState seqS
+  return a
 
-incSeq :: HasSeqState m => m ()
-incSeq = do
-  seqs <- getSeqState
-  putSeqState (seqs { seq = seq seqs + 1 })
+modifySeqs :: HasSeqState m => ([Seq] -> [Seq]) -> m ()
+modifySeqs f = do
+  seqS <- getSeqState
+  seqs <- getSeqs
+  putSeqState $ seqS { seqs = f seqs }
+
+modifySeq :: HasSeqState m => (Seq -> Seq) -> m ()
+modifySeq f =  do
+  seqS <- getSeqState
+  seq <- getSeq
+  putSeqState $ seqS { seq = f seq }

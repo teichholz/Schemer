@@ -43,6 +43,7 @@ parse lits stree = case stree of
   _ | isConst stree -> TempLiteral stree
 
   Sxp l -> TempList $ parseList l
+  _ -> error ("Error: parse: found illegal expression: " <> show stree)
   where
     parseList :: [Stree] -> [Template]
     parseList strees = case strees of
@@ -113,7 +114,7 @@ construct t pvs =
             PVSome var -> do
               seqs <- getSeqs
               let var' = var Map.!? seqs
-              maybe (error "Var not found") return var'
+              maybe (error $ "Var not found: Var Searched: " <> show seqs <> " In Map: " <> show var) return var'
 
       liftA2 (:) var' (constructList tl)
 
@@ -133,15 +134,10 @@ construct t pvs =
       let var = fromMaybe (error "No var in template") (getVarInList t)
       PVSome var' <- getVar var
       seq <- getSeq
-      seqs <- getSeqs
       let vars = Map.assocs var'
           count = getCountOfTemplate seq (fmap fst vars)
-      incSeq
-      lists <- forM [0..count] $ \pos -> do
-        putSeqs $ seqs++[pos]
-        Sxp <$> constructList l
-      putSeqs seqs
-      resetSeq
+      lists <- modifySeqTemporarily (+1) $ forM [0..count] $ \pos -> do
+        modifySeqsTemporarily (++[pos]) $ Sxp <$> constructList l
 
       fmap (lists++) (constructList tl)
 
@@ -182,3 +178,14 @@ testTemplate4 = parse [] (Sxp [ Sxp [Sym "b", Sym "..."], Sym "..."])
 testPVS4 = Map.fromList [("b", b)]
   where
     b = PVSome $ Map.fromList [([0,0], Sym "b"), ([0,1], Sym "b"), ([1,0], Sym "b")]
+
+
+-- (list (list (list a b) ...) (list a ...) (list b ...))
+-- ((a 1) (b 2))
+-- a: [0=a, 1=b]
+-- b: [0=1, 1=2]
+testTemplate5 = parse [] (Sxp [Sxp [Sxp[Sym "a", Sym "b"], Sym "..."], Sxp [Sym "a", Sym "..."], Sxp [Sym "b", Sym "..."]])
+testPVS5 = Map.fromList [("a", a) ,("b", b)]
+  where
+    a = PVSome $ Map.fromList [([0], Sym "a"), ([1], Sym "b")]
+    b = PVSome $ Map.fromList [([0], LitInt 1), ([1], LitInt 2)]
