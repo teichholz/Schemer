@@ -7,8 +7,8 @@ stdenv.mkDerivation {
   buildInputs = [ boehmgc ];
   src = fetchFromGitHub { owner = "teichholz";
                           repo = "Schemer-Runtime";
-                          rev = "main";
-                          sha256= "sha256-TzhltbySQAFw5uhHWvaN9L/4KeLzhKdEsHXczOZr1fA="; };
+                          rev = "e3e8239";
+                          sha256= "sha256-OPd2YVHy+VmxP7nm72pkfdO+Ms47L4HIjSXEreMuXAY="; };
 
   installPhase = ''
     mkdir -p $out/lib
