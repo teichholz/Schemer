@@ -84,7 +84,7 @@ instance Pretty Literal where
   pretty (LitString str) = inQuotes $ pretty str
   pretty (LitSymbol sym) = quoted $ pretty sym
   pretty (LitList list) =
-    let (hds, tl) = dottedList list in if tl == LitNil then quoted $ mkParamList list else quoted $ mkParamListDot hds tl
+    let (hds, tl) = dottedList list in if tl == LitNil then quoted $ mkParamList hds else quoted $ mkParamListDot hds tl
   pretty LitNil = quoted $ inParens emptyDoc
   pretty (LitVector vec) = quoted $ "#" <> pretty (LitList vec)
   pretty LitUnspecified  = "unspecified"

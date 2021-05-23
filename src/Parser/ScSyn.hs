@@ -189,7 +189,7 @@ parseQuote sxp = case sxp of
   where
     parseList :: [Sexp] -> IO [Literal]
     parseList sxps = case sxps of
-      [] -> return []
+      [] -> return [LitNil]
 
       [Atom ".", tl] -> do
         tl <- parseQuote tl
