@@ -40,16 +40,16 @@ atom :: Parser Sexp
 atom = Atom <$> lexeme (choice [stringAtom, rawAtom]) -- stringAtom has higher precedence than rawAtom
 
 rawAtom :: Parser Text
-rawAtom = takeWhile1P (Just "S-expression atom character") isAtom
-
-isAtom :: Char -> Bool
-isAtom = (`notElem` ['\n', '\t', '(', ')', ' ', '#', '\'', ',', '@', '`'])
+rawAtom = takeWhile1P (Just "Atom") isAtom
+  where
+    isAtom = (`notElem` ['\n', '\t', '(', ')', ' '])
 
 stringAtom :: Parser Text
-stringAtom = char '\"' *> fmap (("\"" <>) . (<> "\"")) (takeWhileP (Just "S-expression string") isStringAtom) <* char '\"'
-
-isStringAtom :: Char -> Bool
-isStringAtom = (`notElem` ['\n', '\"'])
+stringAtom =  inQuotes $ fmap enquote (takeWhileP (Just "SAtom") isStringAtom)
+  where
+    inQuotes = between (char '\"') (char '\"')
+    enquote = ("\"" <>) . (<> "\"")
+    isStringAtom = (`notElem` ['\n', '\"'])
 
 list :: Parser Sexp -> Parser Sexp
 list ps = List <$> parens (M.many ps) -- many encount for empty list () (not nil)
@@ -60,13 +60,13 @@ modifier = do
   return $ foldr (.) id fs
   where
     shortcuts :: [Parser (Sexp -> Sexp)]
-    shortcuts = [quoted, qq, uqs, uq]
+    shortcuts = [quote, qq, uqs, uq]
 
 sexp :: Parser Sexp
-sexp = nil <|> (try modifier <*> choice [vec, list sexp, atom])
+sexp = try modifier <*> choice [vec, list sexp, atom]
 
 vec :: Parser Sexp
-vec = lexeme $ fmap (\(List l) -> List $ Atom"vec":l) (char '#' *> list sexp)
+vec = try $ lexeme $ fmap (\(List l) -> List $ Atom"vec":l) (char '#' *> list sexp)
 
 parens :: Parser a -> Parser a
 parens = between lpar rpar
@@ -88,11 +88,8 @@ runParser = M.parse sexps
 -------------------------------------------------------------------------------
 -- Quotes
 -------------------------------------------------------------------------------
-quoted :: Parser (Sexp -> Sexp)
-quoted = shortcut "'" "quote"
-
-nil :: Parser Sexp
-nil = lexeme $ fmap (const $ List[Atom "quote", List[]]) (string "'()")
+quote :: Parser (Sexp -> Sexp)
+quote = shortcut "'" "quote"
 
 -------------------------------------------------------------------------------
 -- Quasiquotes
@@ -113,7 +110,7 @@ uqs = shortcut ",@" "unquote-splicing"
 -- Reader helper
 -------------------------------------------------------------------------------
 shortcut :: Text -> Text -> Parser (Sexp -> Sexp)
-shortcut short long = (\sxp -> List[Atom long, sxp]) <$ string short
+shortcut short long =  string short $> (\sxp -> List[Atom long, sxp])
 
 -------------------------------------------------------------------------------
 -- Reading and transforming the source file into symbolic expressions

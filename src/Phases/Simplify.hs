@@ -30,7 +30,6 @@
 --   (let ((freshvar (io)))
 --     (io)))
 
--- Step 1 and 3 make use of undbound-generics to get locally fresh variables.
 -- Even though the variable in 3 is never used, we need to ensure it is by either hardcoding it, like for example using an illegal scheme identifier. Or we use a fresh variable.
 
 module Phases.Simplify where

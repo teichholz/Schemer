@@ -112,6 +112,61 @@ incTimestamp :: Expander ()
 incTimestamp = do
   ts <- gets timestamp
   modify $ \s -> s { timestamp = succ ts }
+
+
+-------------------------------------------------------------------------------
+-- Parser
+-------------------------------------------------------------------------------
+parseLit :: Sexp -> IO Stree
+parseLit = \case
+  Atom x | isString x -> return $ LitString (parseLiteral stringLiteral x)
+  Atom x | isChar x -> return $ LitChar (parseLiteral charLiteral x)
+  Atom x | isInt x -> return $ LitInt (parseLiteral intLiteral x)
+  Atom x | isFloat x -> return $ LitFloat (parseLiteral floatLiteral x)
+  Atom x | isBool x -> return $ LitBool (parseLiteral boolLiteral x)
+  s -> throwM $ ParseException $ "Wrong literal: " <> show s
+
+-- Most primitive Scheme parser which can be used for interpreters
+parse :: Sexp -> IO Stree
+parse sxp = case sxp of
+  List(Atom "vec":tl) -> LitVec . (LitSymbol "vec":) <$> parseList tl
+  List [] -> return $ LitList []
+  List es -> LitList <$> parseList es
+  Atom _ -> case sxp of
+    Atom x | isName x-> return $ LitSymbol (parseLiteral varLiteral x)
+    Atom _ ->  parseLit sxp
+  where
+    parseList :: [Sexp] -> IO [Stree]
+    parseList sxps = case sxps of
+      [] -> return []
+
+      -- TODO handle these right
+      [Atom ".", tl] -> do
+        tl <- parse tl
+        return [tl]
+
+      hd:tl -> do
+        hd <- parse hd
+        tl <- parseList tl
+        return $ hd:tl
+
+
+parseSyntaxRules :: Stree -> SyntaxRules
+parseSyntaxRules (Sxp (Sym "syntax-rules":(Sxp literals):rulessxp)) =
+  let
+    literals' = getLiterals literals
+    rules = fmap (parseSyntaxRule literals') rulessxp in
+    SyntaxRules { rules }
+  where
+    getLiterals :: [Stree] -> [Symbol]
+    getLiterals [] = []
+    getLiterals (Sym s:tl) = s:getLiterals tl
+
+    parseSyntaxRule :: [Symbol] -> Stree -> SyntaxRule
+    parseSyntaxRule _ (Sxp [Sym _, template]) = SyntaxRule { pat = Matcher.PatEmpty, template = Constructor.parse [] template }
+    parseSyntaxRule lits (Sxp [Sxp (_:tl), template]) = SyntaxRule { pat = Matcher.parse lits tl, template = Constructor.parse lits template }
+    parseSyntaxRule _ _ = error "Wrong syntax rule"
+parseSyntaxRules _ = error "Wrong syntax-rules"
 -------------------------------------------------------------------------------
 -- Predicates
 -------------------------------------------------------------------------------
@@ -233,7 +288,6 @@ s var = do
   return (var, nat)
 
 -- Substitutes timestamped variablenames with variablenames
--- TODO consider binding constructs ?
 subst :: (Symbol, TSVar) -> Stree -> Expander Stree
 subst p@(sym, tsvar) stree = do
   ans <- atomicNotStamped stree
@@ -251,6 +305,7 @@ subst p@(sym, tsvar) stree = do
 
 -- Creates fresh names from timestamped variables
 -- We need to only substitute bound variables
+-- We do not consider define, since we can not generate a fresh name for it
 a :: Stree -> Expander Stree
 a stree = do
   var <- isVar stree
@@ -302,62 +357,6 @@ u stree = do
     TSVar (v, _) -> return $ Sym v
     Sxp stree -> Sxp <$> mapM u stree
 
-
-
--------------------------------------------------------------------------------
--- Parser
--------------------------------------------------------------------------------
-parseLit :: Sexp -> IO Stree
-parseLit = \case
-  Atom x | isString x -> return $ LitString (parseLiteral stringLiteral x)
-  Atom x | isChar x -> return $ LitChar (parseLiteral charLiteral x)
-  Atom x | isInt x -> return $ LitInt (parseLiteral intLiteral x)
-  Atom x | isFloat x -> return $ LitFloat (parseLiteral floatLiteral x)
-  Atom x | isBool x -> return $ LitBool (parseLiteral boolLiteral x)
-  s -> throwM $ ParseException $ "Wrong literal: " <> show s
-
--- Most primitive Scheme parser which can be used for interpreters
-parse :: Sexp -> IO Stree
-parse sxp = case sxp of
-  List(Atom "vec":tl) -> LitVec . (LitSymbol "vec":) <$> parseList tl
-  List [] -> return $ LitList []
-  List es -> LitList <$> parseList es
-  Atom _ -> case sxp of
-    Atom x | isName x-> return $ LitSymbol (parseLiteral varLiteral x)
-    Atom _ ->  parseLit sxp
-  where
-    parseList :: [Sexp] -> IO [Stree]
-    parseList sxps = case sxps of
-      [] -> return []
-
-      -- TODO handle these right
-      [Atom ".", tl] -> do
-        tl <- parse tl
-        return [tl]
-
-      hd:tl -> do
-        hd <- parse hd
-        tl <- parseList tl
-        return $ hd:tl
-
-
-parseSyntaxRules :: Stree -> SyntaxRules
-parseSyntaxRules (Sxp (Sym "syntax-rules":(Sxp literals):rulessxp)) =
-  let
-    literals' = getLiterals literals
-    rules = fmap (parseSyntaxRule literals') rulessxp in
-    SyntaxRules { rules }
-  where
-    getLiterals :: [Stree] -> [Symbol]
-    getLiterals [] = []
-    getLiterals (Sym s:tl) = s:getLiterals tl
-
-    parseSyntaxRule :: [Symbol] -> Stree -> SyntaxRule
-    parseSyntaxRule _ (Sxp [Sym _, template]) = SyntaxRule { pat = Matcher.PatEmpty, template = Constructor.parse [] template }
-    parseSyntaxRule lits (Sxp [Sxp (_:tl), template]) = SyntaxRule { pat = Matcher.parse lits tl, template = Constructor.parse lits template }
-    parseSyntaxRule _ _ = error "Wrong syntax rule"
-parseSyntaxRules _ = error "Wrong syntax-rules"
-
 -------------------------------------------------------------------------------
 -- Expander
 -------------------------------------------------------------------------------
@@ -392,7 +391,7 @@ e stree = do
     App (Sym synext) tl | isMacro synext -> do
       sf <- getBinding synext
       -- if sf is Nothing then error else sf mstree
-      let transcription = fromMaybe (error "Macro not found") (sf <*> Just (Sxp tl))
+      let transcription = fromMaybe (error $ "Error: e: Macro not found: " <> synext) (sf <*> Just (Sxp tl))
       ((`t` s) >=> e) transcription
 
     Sxp es -> Sxp <$> mapM e es
@@ -407,6 +406,7 @@ makeSTF SyntaxRules { rules } = \sxp ->
     fromMaybe (error "No Pattern matched") maybematch
   where
     findMatchingRule :: Stree -> [SyntaxRule] -> Maybe Stree
+    findMatchingRule _ [] = error "Error: makeSTF: No rules specified"
     findMatchingRule sxp (SyntaxRule { pat, template }:tl) =
       let pvs = Matcher.tryMatch pat sxp in
       Constructor.construct template <$> pvs <|> findMatchingRule sxp tl

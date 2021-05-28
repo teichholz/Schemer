@@ -57,12 +57,6 @@ data Sexp =
   | List [Sexp]
   deriving (Eq, Show)
 
-prependS :: Sexp -> Sexp -> Sexp
-prependS a@(Atom _) (List l) = List (a:l)
-prependS (List l) (List l') = List (l++l')
-prependS a@(Atom _) a'@(Atom _) = List [a, a']
-prependS (List l) a@(Atom _) = List (l++[a])
-
 -------------------------------------------------------------------------------
 -- AST
 -------------------------------------------------------------------------------
