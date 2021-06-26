@@ -2,7 +2,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving, NoImplicitPrelude #-}
-
+{-# LANGUAGE ExtendedDefaultRules #-}
 -- This module uses llvm-hs-pure to contstruct an AST representing an LLVM module for which llvm-hs will generate the llvm-ir code.
 -- By design the given IRBuilder is not used, instead a similar is designed, with functions acting over state.
 
@@ -126,19 +126,19 @@ compile procs = do
 
 codegen :: Proc UniqName -> LLVM ()
 codegen (Proc (name, ELam (Lam ps (Body [body])))) = do
-  let formals = zip (repeat sobjPtr) (fmap toName ps)
-  let rettype = case name of
-                  UName "main" 0 -> TY.void
-                  _     -> sobjPtr
+  let formals :: [(Type, Name)] = zip (repeat sobjPtr) (fmap toName ps)
+  -- let rettype = case name of
+  --                 UName "main" _ -> TY.IntegerType 32
+  --                 _     -> sobjPtr
 
-  define (decl rettype name formals) $ \operands -> do
+  define (decl sobjPtr name formals) $ \operands -> do
     -- Register the arguments, so they can be accessed as variables
-    let names = fmap toName ps
-        args = zip names operands
+    let names :: [Name] = fmap toName ps
+        args :: [(Name, Operand)] = zip names operands
     mapM_ (uncurry assign) args
 
     -- Codegen the body
-    body' <- codegenExpr (toExpr body)
+    body' <- codegenExpr body
 
     -- Unregister the arguments after the body
     mapM_ unassign names
@@ -146,8 +146,8 @@ codegen (Proc (name, ELam (Lam ps (Body [body])))) = do
 
 codegen _ = error "wrong Proc"
 
-codegenExpr :: Expr UniqName -> Codegen Operand
-codegenExpr e = case e  of
+codegenExpr :: ToExpr e UniqName => e -> Codegen Operand
+codegenExpr e = case toExpr e of
   ELit lit -> literal lit
   ELet lt -> letbind lt
   EVar n -> ident n
@@ -163,6 +163,9 @@ codegenExpr e = case e  of
     literal (LitFloat f) = do
       fn <- callableFnPtr "const_init_float"
       call fn [floatC f]
+    literal (LitChar c) = do
+      fn <- callableFnPtr "const_init_char"
+      call fn [charC c]
     literal (LitString s) = do
       strptr <- globalStringPtr "str" s
       fn <- callableFnPtr "const_init_string"
@@ -191,18 +194,19 @@ codegenExpr e = case e  of
     letbind (Let [(n, expr)] (Body [body])) = do
       letval <- codegenExpr expr
       assign n letval
-      bodyval <- codegenExpr (toExpr body)
+      bodyval <- codegenExpr body
       unassign n
       return bodyval
 
-    ident :: UniqName -> Codegen Operand
+    ident :: ToLLVMName n => n -> Codegen Operand
     ident un = do
       let name = toName un
       maybeFnPtr <- fnPtr name
       case maybeFnPtr of
         Nothing -> getvar un
-        Just fn -> do
-          ui <- ptrToInt i64 (const $ global fn name)
+        Just _ -> do
+          cfptr <- callableFnPtr name
+          ui <- ptrToInt i64 cfptr
           fn <- callableFnPtr "const_init_int"
           call fn [ui]
 
@@ -233,7 +237,7 @@ codegenExpr e = case e  of
 
     primCall :: PrimName -> [Expr UniqName] -> Codegen Operand
     primCall pn es = do
-      fn <- callableFnPtr (toName pn)
+      fn <- callableFnPtr pn
       es <- mapM codegenExpr es
       call fn es
 
@@ -311,6 +315,9 @@ class ToLLVMName a where
 
 instance ToLLVMName Name where
   toName = id
+
+instance ToLLVMName String where
+  toName = toName . fromString @ShortByteString
 
 instance ToLLVMName ByteString where
   toName = toName . toShort
@@ -428,13 +435,14 @@ findFnByName nm = Codegen $ lift $ fmap (findType . moduleDefinitions) getModule
         globalDefs = [g | GlobalDefinition g <- defs]
         fnDefByName = [f | f@Function {name = nm'} <- globalDefs, nm' == nm]
 
-callableFnPtr :: Name -> Codegen Operand
-callableFnPtr nm = do
+callableFnPtr :: ToLLVMName n => n -> Codegen Operand
+callableFnPtr nm' = do
+  let nm = toName nm'
   ptr <- fnPtr nm
   let ptr' = case ptr of
         Nothing -> error ("Function not defined" <> show nm)
         Just ptr -> ptr
-  return $ ConstantOperand (global ptr' nm)
+  return $ const (global ptr' nm)
 
 globalStringPtr ::
   ShortByteString         -- ^ Variable name of the pointer
@@ -475,14 +483,17 @@ declarePrims = mapM_ go primsAndAritys
     go (pn, aritys@[_, _]) =
       forM_ aritys $ \arity ->
       forM_ [pn, "apply_" <> pn] $ \pn' ->
-        declare $ decl sobjPtr (pn' <> fromString (show arity)) (primArgList arity)
+        declare $ decl sobjPtr (pn' <> fromString (show arity))
+                       (primArgList arity)
     go _ = error "invalid aritys of primitve function"
 
 declareConstInits :: LLVM ()
-declareConstInits = mapM_ (\(n, argtype) -> declare $ decl sobjPtr n (singletonArg argtype)) consts
+declareConstInits = forM_ consts $ \(n, argtype) ->
+  declare $ decl sobjPtr n (singletonArg argtype)
 
 declareHelper :: LLVM ()
-declareHelper = mapM_ (\(ret, name, args) -> declare $ decl ret name args) helper
+declareHelper = forM_ helper $ \(ret, name, args) ->
+  declare $ decl ret name args
 -------------------------------------------------------------------------------
 -- Names
 -------------------------------------------------------------------------------

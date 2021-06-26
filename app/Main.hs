@@ -28,7 +28,8 @@ import System.IO (putStrLn)
 
 
 phases :: [ScEnv ()]
-phases = [Sexp.parse, Expander.expand, ScSyn.parse, Top.transform, Sim.transform, Ass.transform, ANF.transform, CPS.transform, Uni.transform, Clo.transform, Cod.transform]
+phases = [Sexp.parse,  Expander.expand,
+          ScSyn.parse, Top.transform, Sim.transform, Ass.transform, ANF.transform, CPS.transform, Uni.transform, Clo.transform, Cod.transform]
 
 compileAction :: ScEnv ()
 compileAction = foldl1 (>>) phases

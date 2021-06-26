@@ -23,15 +23,14 @@ transform = do
   topref <- asks _toplevel
   top <- readSomeRef topref
   logDebug $ "Input Toplevel is:\n" <>  mconcat (display <$> top)
-  let top' = toBody top
-      topLet = toSyn $ body2Rec top'
-      top'' =  go topLet
 
-  logDebug $ "Created AST from toplevel:\n" <> display top''
-  logDebug $ "Created raw AST from toplevel:\n" <> display (show top'')
+  let top' = go top
+
+  logDebug $ "Created AST from toplevel:\n" <> display top'
+  logDebug $ "Created raw AST from toplevel:\n" <> display (show top')
 
   ast <- asks _ast
-  writeSomeRef ast top''
+  writeSomeRef ast top'
 
 
 -- getDecls -> map decl2Bind -> makeRecBindings
@@ -67,8 +66,11 @@ getExprs = fmap toExpr . filter isExpr . unBody
 hasDecls :: Body Name -> Bool
 hasDecls b = let decl = getDecls b in not $ null decl
 
-go :: ScSyn Name -> ScSyn Name
-go = descend go'
+go :: [ScSyn Name] -> ScSyn Name
+go top =
+  let top' = toBody top
+      topLet = toSyn $ body2Rec top' in
+  descend go' topLet
   where
     go' :: Expr Name -> Expr Name
     go' = \case

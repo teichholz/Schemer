@@ -48,9 +48,9 @@ ghc-options:
 - -Wredundant-constraints
 - -Wno-unused-imports
 
-extra-libraries:
-  - Runtime_s
-  - gc
+# extra-libraries:
+#   - Runtime_s
+#   - gc
 
 library:
   source-dirs:

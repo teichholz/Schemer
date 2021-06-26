@@ -30,6 +30,9 @@
 --   (let ((freshvar (io)))
 --     (io)))
 
+-- 4. We eta-expand primitives in variable positions
+-- (x display 2) => (x (lambda x (apply display x)) 2)
+
 -- Even though the variable in 3 is never used, we need to ensure it is by either hardcoding it, like for example using an illegal scheme identifier. Or we use a fresh variable.
 
 module Phases.Simplify where
@@ -40,6 +43,7 @@ import Types.Pprint
 import RIO.State
 import Prelude (print)
 import Types.Constructors
+import Utils.NameResolver (isPrim)
 
 
 transform :: ScEnv ()
@@ -62,8 +66,7 @@ type SN = ScSyn Name
 type IE = Identity (Expr Name)
 
 go :: SN -> SN
-go = run sequenceBody . run flattenLet . run lambdad2lambdal
-
+go = run etaExpand . run sequenceBody . run flattenLet . run lambdad2lambdal
 
 
 lambdad2lambdal :: EN -> EN
@@ -79,6 +82,9 @@ lambdad2lambdal = \case
         makeLamList lamlarg (makeLet binding body)
       x -> toExpr x
 
+    -- The idea is to compose necessary cdr applications.
+    -- 1: id, 2: cdr . id, 3: cdr . cdr . id, 4: ... . Let this be f.
+    -- For each parameter before the dot (.), we get the binding via: car . f
     go' :: EN -> ([Name], Name) -> State (EN -> EN, [(Name, EN)]) [(Name, EN)]
     go' lamlarg (ns, dotn) = do
       (app, _) <- get
@@ -108,17 +114,19 @@ sequenceBody = \case
   ELam (LamList n b) -> makeLamList n (seq b)
   x -> x
   where
+    seq :: Body Name -> Body Name
+    seq b = toBody $ go $ unBody b
     go :: [SN] -> EN
+    go [send] = toExpr send
     go [s, send] = do
       let uniqName = makeUniqueName "seqbody" send in
         makeLet (uniqName, toExpr s) send
     go (s:ss) = do
       let uniqName = makeUniqueName "seqbody" (toBody ss) in
-        makeLet (uniqName, toExpr s) $ go ss
-    seq :: Body Name -> Body Name
-    seq b =
-      let ss@(_:bs) = unBody b in
-        if null bs then -- Body has one expression
-          b
-        else -- Body has >1 expressions
-          toBody $ go ss
+        makeLet (uniqName, toExpr s) (go ss)
+
+
+etaExpand :: Expr Name -> Expr Name
+etaExpand = \case
+  EVar x | isPrim x ->  makeLamList ("l" :: Name) (makePrimApply x (toExpr ("l" :: Name)))
+  e -> e

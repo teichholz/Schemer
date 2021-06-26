@@ -1,3 +1,5 @@
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -20,6 +22,7 @@ import qualified Data.Text as T
 import Data.Data (cast)
 import Data.Foldable
 import LLVM (File(File))
+import Data.Monoid
 
 -- Main datatype as a: ReaderT Env IO a
 type ScEnv a = RIO Env a
@@ -116,21 +119,18 @@ data Application a
 -- Scheme name and RT (Runtime) name
 -- Example: + (Scheme) and plus (RT)
 newtype PrimName = PName {unPName :: (ByteString, ByteString)}
-  deriving (Show, Generic)
+  deriving stock (Show, Generic)
+  deriving (Semigroup) via ((,) ByteString ByteString)
 
 instance Eq PrimName where
   PName (n, _) == PName (n', _) = n == n'
 
-instance Semigroup PrimName where
-  -- The RT name ca be changed from both left and right, maintaining the Scheme name
-  PName ("", n) <> PName (sn, n') = PName (sn, n <> n')
-  PName (sn, n) <> PName ("", n') = PName (sn, n <> n')
 
 -- These represent methods needed by the runtime itself.
 -- These don't have an actual Scheme counterpart which is used for pretty printing.
 -- Example: halt (RT), no Scheme counterpart
 newtype PrimName' = PName' {unPName' :: ByteString}
-  deriving (Show, Generic)
+  deriving (Show)
 
 
 data Lambda a
@@ -159,25 +159,6 @@ data Literal
   | LitVector [Literal]
   | LitUnspecified
   deriving (Show, Eq, Generic, Typeable)
-
--- data SynExtension
---   = ECond CondBody      -- (cond ((#t) (io) 'true) (else 'false))
---   | ECase Expr CaseBody -- (case (+ 2 2) ((4) 'true) (else 'false))
---   | EOr (Maybe [Expr])  -- (or)
---   | EAnd (Maybe [Expr]) -- (and)
---   | EBegin [Expr]       -- (begin (io) 'true)
---   | LetStar [(Name, Expr)] Body
---   | LetRec [(Name, Expr)] Body
---   deriving (Show, Generic, Typeable)
-
-
--- type CondBody
---   = [(Expr, Body)] -- (test expr1 expr2 ...)
-
--- type CaseBody
---   = [([Literal], Body)] -- (test expr1 expr2 ...)
-
--- Post-Desugar
 
 data Core
   = Void
@@ -327,9 +308,9 @@ instance FreeVars Let where
 
 -- The AST is parameterized over it's type of variables. This means Foldable can be used to get all of them.
 av :: (Foldable e, Ord a) => e a -> S.Set a
-av = foldl go S.empty
+av = foldl' go S.empty
   where
-    go :: (Ord a) => S.Set a -> a -> S.Set a
+    go :: Ord a => S.Set a -> a -> S.Set a
     go sa a = S.union sa (S.singleton a)
 
 -------------------------------------------------------------------------------
@@ -354,7 +335,7 @@ indexOfUniqName (UName _ i) = i
 addUniqName :: Name -> UniqName -> NameMap -> NameMap
 addUniqName = M.insert
 
-runAlpha :: (Alphatization e) =>  e Name -> e UniqName
+runAlpha :: Alphatization e =>  e Name -> e UniqName
 runAlpha e = evalState (alpha e) (0, M.empty)
 
 unAlpha :: Functor e => e UniqName -> e Name

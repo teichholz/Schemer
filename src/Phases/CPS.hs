@@ -41,10 +41,6 @@ tAe e = case e of
 
   x -> x
 
--- Checks wether a let binds a lambda application
-appLamBind :: Let Name -> Bool
-appLamBind (Let [(_, e)] _) = isLamApp e
-appLamBind _ = False
 
 -- Traverses ast, adds cont (lambda) to non-primitive application calls. Gets rid of call/cc. Calls cont on return values (last expr).
 t :: Expr Name -- ^ Expr to transform into CPS
@@ -56,13 +52,11 @@ t e c = case e of
   EApply (ApplyPrim _ _ ) -> t (ret e) c
 
   -- Propagate tAe, remember that ANF forces non-atomic expressions to applications/applys to be letbound
-  ELet l@(Let pat body) | not $ appLamBind l -> do
-    let [(lhs, rhs)] = pat
+  ELet (Let [(lhs, rhs)] body) | not $ isLamApp rhs || isCallCC rhs -> do
     let rhs' = case rhs of
                   EApp (AppPrim n es) -> makePrimApp n (tAe <$> es)
                   EApply (ApplyPrim n e) -> makePrimApply n (tAe e)
                   ELam _ -> tAe rhs
-                  ECallCC _ -> t rhs c
                   x -> x
 
     makeLet (lhs, rhs') (t (toExpr body) c)
@@ -71,15 +65,21 @@ t e c = case e of
   EIf tst thn els -> makeIf3 (tAe tst) (t thn c) (t els c)
 
   -- if a LamApp is letbound, the body of the let represents its continuation
-  ELet (Let pat body) -> do
-    let [(arg, lamApp)] = pat
+  ELet (Let [(arg, lamApp)] body) -> do
     let cont = makeLam [arg] (t (toExpr body) c)
     t lamApp cont
+  -- ELet (Let [(arg, lamApp)] body) -> do
+  --   let unused = makeUniqueName "usused" body
+  --       cont = makeLam [unused, arg] (t (toExpr body) c)
+  --       n = makeUniqueName "cont" body
+  --   makeLet (n, cont) (t lamApp (toExpr n))
 
   ECallCC e -> do
     let name = makeUniqueName "callcc" e
     makeLet (name, callcc)
-      (makeLamApp (toExpr name) [c, tAe e])
+      (makeLamApp name [c, tAe e])
+  -- ECallCC e -> do
+  --   makeLamApp (tAe e) [c, c]
 
   -- Expressions in return posititon
   -- add cont to the argument list
@@ -95,6 +95,9 @@ t e c = case e of
 
   -- Call cont with lambda as argument, if lambdas will be returned
   ELam _ -> makeLamApp c [tAe e]
+  -- ELam _ -> do
+  --   let lam = makeLam ["un", "used"] [makeLamApp ("un" :: Name) ["used" :: Expr Name, "used"]]
+  --   makeLamApp c [lam, tAe e]
 
   -- Call cont on literals and variables, if they are returned
   x -> makeLamApp c [x]
@@ -111,6 +114,8 @@ go = toSyn . go' . toExpr
   where
     go' :: Expr Name -> Expr Name
     go' e = do
+      let finalCont = makeLam ["k", "v"] [makeLet ("_", makePrimApp ("halt" :: PrimName') ["v" :: Expr Name]) (makeLamApp ("k" :: Expr Name) ["v"])]
+          finalCont' = makeLam ["final"] [makePrimApp ("halt" :: PrimName') ["final" :: Expr Name]]
       makeLet
-        ("halt-and-display" :: Name, makeLam ["final" :: Name] [makePrimApp ("halt" :: PrimName') ["final" :: Expr Name]])
+        ("halt-and-display" :: Name, finalCont')
         (t e ("halt-and-display" :: Expr Name))

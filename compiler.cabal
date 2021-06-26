@@ -25,8 +25,11 @@ source-repository head
 
 library
   exposed-modules:
+      Expander.Ast
+      Expander.Constructor
       Expander.Expander
-      Expander.Naive
+      Expander.Matcher
+      Expander.Seq
       Parser.ScSyn
       Phases.ANF
       Phases.Assignment

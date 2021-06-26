@@ -41,12 +41,13 @@ go = callWithAlpha (descend closureConversion)
 hoist :: ScSyn UniqName -> [Proc UniqName]
 hoist e =
   let (maine, (_, procs)) = runState (descendM (makeMap go) e) (0, [])
-   in procs ++ [Proc (makeUniqName "main" 0, makeLam ([] :: [UniqName]) (toBody maine))]
+      main = Proc (makeUniqName "main" 0, makeLam [] (toBody maine))
+   in procs ++ [main]
   where
     go :: Expr UniqName -> State (Counter, [Proc UniqName]) (Expr UniqName)
     go e = case e of
       ELam (Lam _ _) -> do
-        (cntr, _) <- get
+        cntr <- gets fst
         let procname = makeUniqName "proc" cntr
             proc = Proc (procname, e)
         modify $ bimap (+ 1) (++ [proc])
@@ -78,7 +79,7 @@ makeClosure lam ns = makeVectorFromList (ELam lam:fmap EVar ns)
 closureConversion :: Expr UniqName -> Expr UniqName
 closureConversion e = case e of
   ELam lam@(Lam ps b) ->
-    let env = makeGloballyUniqueName "env" b
+    let env = makeUniqueName "env" b
         fvs = toAscList (fv lam)
         fvs' = zip fvs [1..]
         b' = envAccess b env fvs' in

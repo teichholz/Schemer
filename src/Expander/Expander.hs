@@ -46,7 +46,7 @@ data SyntaxRule = SyntaxRule { pat :: Matcher.Pattern, template :: Constructor.T
 -- ST Setup
 -------------------------------------------------------------------------------
 defaultBindings :: Bindings
-defaultBindings = Map.fromList [("or", or), ("and", and), ("begin", begin), ("define", define)]
+defaultBindings = Map.fromList [("or", or), ("and", and), ("begin", begin)]
   where
     or :: Stree -> Stree
     or (Sxp []) = F
@@ -65,11 +65,6 @@ defaultBindings = Map.fromList [("or", or), ("and", and), ("begin", begin), ("de
     begin (Sxp [e]) = e
     begin (Sxp (e:es)) = Let [Bind (Sym "l") e] (Sxp (Sym "let": es))
     begin _ = error "invalid synext"
-
-    define :: Stree -> Stree
-    define (Sxp [v@(Sym _), body]) = Define v body
-    define (Sxp [Sxp [name, args], body]) = Define name (Lambda args body)
-    define _ = error "invalid synext"
 
 defaultST :: ST
 defaultST = ST { bindings = defaultBindings, vars = [], timestamp = 0 }
@@ -141,9 +136,9 @@ parse sxp = case sxp of
       [] -> return []
 
       -- TODO handle these right
-      [Atom ".", tl] -> do
-        tl <- parse tl
-        return [tl]
+      -- [Atom ".", tl] -> do
+      --   tl <- parse tl
+      --   return [tl]
 
       hd:tl -> do
         hd <- parse hd
@@ -172,16 +167,6 @@ parseSyntaxRules _ = error "Wrong syntax-rules"
 -------------------------------------------------------------------------------
 isBound :: Bindings -> Symbol ->  Bool
 isBound = flip Map.member
-
-isCoreToken :: Symbol -> Expander Bool
-isCoreToken = return . flip elem toks
-  where
-    toks = ["let", "define", "lambda", "quote", "set!", "if", "quasiquote", "vec", "unquote", "unquote-splicing"]
-
-isMacroToken :: Symbol -> Expander Bool
-isMacroToken sym = do
-  bs <- gets bindings
-  return $ isBound bs sym
 
 isQuoted :: Stree -> Expander Bool
 isQuoted (Quote _) = return True
@@ -250,9 +235,14 @@ t stree f = do
         -- Binding forms
         -- Define
         Define arg expr -> do
-          addVar arg
           expr' <- t expr f
           return $ Define arg expr'
+
+        Define (Sxp (name:args)) (Sxp es) -> do
+          (args', es') <- withVars args $ do
+            liftA2 (,) (mapM (`t` f) args) (mapM (`t` f) es)
+
+          return $ Define (Sxp (name:args')) (Sxp es')
 
         -- Normal lambda and dotted lambda
         Lambda (Sxp args) (Sxp es) -> do
@@ -323,6 +313,16 @@ a stree = do
       let newargs = Sym <$> fmap fst args'
       newbody <- foldrM subst body args'
       Lambda (Sxp newargs) <$> a newbody
+
+    Define (Sxp (name:args)) body -> do
+      args' <- forM args $ \case
+        TSVar arg -> do
+          let gen = freshName arg
+          return (gen, arg)
+        e -> error ("Error: a: Expected TSVar in argument list, but got: " <> show e)
+      let newargs = Sym <$> fmap fst args'
+      newbody <- foldrM subst body args'
+      Define (Sxp (name:newargs)) <$> a newbody
 
     Lambda (TSVar arg) body -> do
       let newarg = freshName arg
@@ -421,11 +421,11 @@ runExpand expander = evalStateT (runExpander expander) defaultST
 -------------------------------------------------------------------------------
 
 streeToSexp :: Stree -> Sexp
-streeToSexp (LitString str) = Atom (fromString str)
+streeToSexp (LitString str) = Atom (fromString $ "\"" <> str <> "\"")
 streeToSexp (LitSymbol str) = Atom (fromString str)
 streeToSexp (LitInt int) = Atom (fromString $ show int)
 streeToSexp (LitFloat float) = Atom (fromString $ show float)
-streeToSexp (LitChar char) = Atom (fromString $ "#\\" <> show char)
+streeToSexp (LitChar char) = Atom (fromString $ "#\\" <> [char])
 streeToSexp (LitBool b) = Atom (fromString $ if b then "#t" else "#f")
 streeToSexp (LitList l) = List $ fmap streeToSexp l
 streeToSexp (LitVec l) = List $ fmap streeToSexp l

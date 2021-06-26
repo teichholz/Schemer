@@ -186,6 +186,13 @@ test = parseTest sexps
 
 df :: Text
 df = [r|
-(define-syntax alist ()
-  (_ (a b) ...) (list (list a b) ...))
+(define f #f)
+(define (fak n)
+    (if (< n 2 )
+    (call-with-current-continuation
+      (lambda (c) (set! f c) 1))
+    (let ((decn (dec n)))
+        (let ((fakdecn (fak decn)))
+        (* n facdekn)))))
+(fak 5)
 |]

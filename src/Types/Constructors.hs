@@ -48,6 +48,12 @@ class ToBinding t a | t -> a where
 class ToName t where
   toName :: t -> Name
 
+class ToUniqName t where
+  toUniqName :: t -> UniqName
+
+instance ToUniqName UniqName where
+  toUniqName = id
+
 class ToPrimName t where
   toPrimName :: t -> PrimName
 
@@ -141,14 +147,17 @@ instance ToBody [ScSyn a] a where
   toBody = Body
 
 -- -- ToBinding
+instance ToBinding (Binding a) a where
+  toBinding = id
+
 instance (ToExpr e a) => ToBinding (a, e) a where
   toBinding (n, e) = [(n, toExpr e)]
 
--- instance (ToExpr e UniqName) => ToBinding (n, e) UniqName where
---   toBinding (n, e) = [(n, toExpr e)]
+-- instance (ToExpr e UniqName, ToUniqName n) => ToBinding (n, e) UniqName where
+--   toBinding (n, e) = [(toUniqName n, toExpr e)]
 
-instance (ToName n, ToExpr e Name) => ToBinding [(n, e)] Name where
-  toBinding = fmap (bimap toName toExpr)
+-- instance (ToName n, ToExpr e Name) => ToBinding [(n, e)] Name where
+--   toBinding = fmap (bimap toName toExpr)
 
 
 instance ToName Name where
@@ -170,7 +179,7 @@ instance IsString UniqName where
   fromString s = makeUniqName (toName s) (-1)
 
 instance IsString PrimName where
-  fromString s = toPrimName (fromString s :: ByteString)
+  fromString s = toPrimName (fromString s :: Name)
 
 instance IsString PrimName' where
   fromString = PName' . fromString
@@ -198,14 +207,14 @@ instance ToPrimName Text where
 makePrimApp :: ToPrimName n => n -> [Expr a] -> Expr a
 makePrimApp n exprs = toExpr $ AppPrim (toPrimName n) exprs
 
-makeLamApp :: Expr a -> [Expr a] -> Expr a
-makeLamApp expr exprs = toExpr $ AppLam expr exprs
+makeLamApp :: ToExpr e a => e -> [Expr a] -> Expr a
+makeLamApp expr exprs = toExpr $ AppLam (toExpr expr) exprs
 
 makePrimApply :: ToPrimName n => n -> Expr a -> Expr a
 makePrimApply n expr = toExpr $ ApplyPrim (toPrimName n) expr
 
-makeLamApply :: Expr a -> Expr a -> Expr a
-makeLamApply expr1 expr2 = toExpr $ ApplyLam expr1 expr2
+makeLamApply :: ToExpr e a => e -> e -> Expr a
+makeLamApply expr1 expr2 = toExpr $ ApplyLam (toExpr expr1) (toExpr expr2)
 
 makeVar :: String -> Expr Name
 makeVar = EVar . makeName . toName
@@ -347,18 +356,34 @@ isLamApp :: Expr a -> Bool
 isLamApp (EApp (AppLam _ _)) = True
 isLamApp _ = False
 
+isCallCC :: Expr a -> Bool
+isCallCC (ECallCC _) = True
+isCallCC _ = False
+
 makeName' :: ByteString -> Int -> Name
 makeName' s i = toName $ s <> fromString (show i)
 
 
-makeUniqueName :: Foldable e => ByteString -> e Name -> Name
-makeUniqueName n e =
-  let vars = av e
-      notTakenP = \n -> not $ S.member n vars in
-    if notTakenP n then
-      toName n
-    else
-      toName $ head $ filter notTakenP (fmap (makeName' n) [0..])
+class UniqNameable t a | t -> a where
+  makeUniqueName :: Name -> t -> a
+
+instance Foldable e => UniqNameable (e Name) Name where
+  makeUniqueName n e =
+    let vars = av e
+        notTakenP = \n -> not $ S.member n vars in
+      if notTakenP n then
+        toName n
+      else
+        toName $ head $ filter notTakenP (fmap (makeName' n) [0..])
+
+instance (Foldable e, Functor e) => UniqNameable (e UniqName) UniqName where
+  makeUniqueName n e =
+    let
+      vars =  av e
+      n' = makeUniqueName n (unAlpha e)
+      low = succ $ indexOfUniqName (maximum e) in
+     head $ filter (\n -> not $ S.member n vars)
+                   (fmap (makeUniqName n') [low..])
 
 makeUniqueName' :: Foldable e => ByteString -> [e Name] -> Name
 makeUniqueName' n e =
@@ -369,11 +394,3 @@ makeUniqueName' n e =
       toName $ head $ filter (\n -> not $ S.member n vars)
                              (fmap (makeName' n) [0..])
 
-makeGloballyUniqueName :: (Foldable e, Functor e) => Name -> e UniqName -> UniqName
-makeGloballyUniqueName n e =
-  let vars =  av e
-      n' = makeUniqueName n (unAlpha e)
-      low = succ $ indexOfUniqName (maximum e)
-  in
-     head $ filter (\n -> not $ S.member n vars)
-                   (fmap (makeUniqName n') [low..])

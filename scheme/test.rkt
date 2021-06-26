@@ -51,3 +51,10 @@
                                  #'x)))]))
 
 (define s->l (syntax->list #'(+ 1 2)))
+
+
+(define-syntax alist
+  (syntax-rules ()
+    ((_ (a b) ...) (list (list (list a b) ...) (list a ...) (list b ...)))))
+
+;; (alist ('a 1) ('b 2))

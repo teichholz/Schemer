@@ -3,5 +3,7 @@
 with pkgs;
 
 mkShell {
-  buildInputs = [ stack boehmgc (import ./rt.nix {}) ];
+  buildInputs = [ stack boehmgc 
+   # (import ./rt.nix {})
+   ];
 }

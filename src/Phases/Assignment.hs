@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | 5. Phase Removes set! by wrapping local variables and parameters in one-element vectors called boxes.
 
@@ -17,7 +18,7 @@ module Phases.Assignment where
 import RIO
 import RIO.State
 import qualified RIO.Map as M
-import RIO.Set as S
+import qualified RIO.Set as S
 import Types.Types
 import Types.Constructors
 import Types.Pprint
@@ -87,26 +88,24 @@ removeSet e = do
       return $ makeBoxSet e
 
     ELet (Let [pat@(n, _)] b) | isMutated n -> do
-      return $ ELet $ Let (makeBoxBinding pat) b
+      return $ makeLet (makeBoxBinding pat) b
 
     EVar n | isMutated n -> return $ makeBoxGet e
 
     ELam (Lam ns b) -> do
-      let f  = \n -> do
-            (ns', bs) <- get
-            if isMutated n then do
-              let n' = makeGloballyUniqueName "mutatedlamarg" b
-              put (ns' ++ [n'], bs ++ makeBoxBinding (n, toExpr n'))
-            else
-              put (ns' ++ [n], bs)
+      let f :: UniqName -> State ([UniqName], Binding UniqName) ()  = \case
+                  n | isMutated n -> do
+                    let n' = makeUniqueName "mutatedlamarg" b
+                    modify $ bimap (++ [n']) (++ makeBoxBinding (n, toExpr n'))
+                  n -> modify $ first (++ [n])
 
-      let (ns', bs) = runIdentity $ execStateT (mapM f ns) ([], [])
-          b' = if ns == ns' then b else toBody (flattenLet $ ELet $ Let bs b)
+      let (ns', bs) = execState (mapM f ns) ([], [])
+          b' = if null bs then b else toBody (flattenLet $ makeLet bs b)
 
-      return $ ELam $ Lam ns' b'
+      return $ makeLam ns' b'
 
     ELam (LamList n b) | isMutated n -> do
-      let n' = makeGloballyUniqueName "mutatedlamlarg" b
-      return $ ELam $ LamList n' (toBody $ ELet $ Let (makeBoxBinding (n, toExpr n')) b)
+      let n' = makeUniqueName "mutatedlamlarg" b
+      return $ makeLamList n' (toBody $ makeLet (makeBoxBinding (n, toExpr n')) b)
 
     x -> return x

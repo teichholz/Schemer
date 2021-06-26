@@ -30,6 +30,7 @@ isConst :: Stree -> Bool
 isConst (LitString _) = True
 isConst (LitSymbol _) = True
 isConst (LitInt _) = True
+isConst (LitFloat _) = True
 isConst (LitChar _) = True
 isConst (LitBool _) = True
 isConst (LitVec _) = True

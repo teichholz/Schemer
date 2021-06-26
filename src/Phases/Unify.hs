@@ -67,33 +67,40 @@ go = callWithAlpha (descend overload . descend unify)
 overload :: Expr a -> Expr a
 overload e = case e of
   EApp (AppPrim pn es) | NR.isOverloaded pn -> EApp $ AppPrim (overload' pn es) es
-  EApply (ApplyPrim pn e) | NR.isOverloaded pn -> EApply $ ApplyPrim (overload' pn [e]) e
+  -- Should not exist anymore
+  -- EApply (ApplyPrim pn e) | NR.isOverloaded pn -> EApply $ ApplyPrim (overload' pn [e]) e
   e -> e
   where
     overload' :: PrimName -> [a] -> PrimName
     overload' pn args =
-      let len = L.length args
+      let len = fromString $ show $ L.length args
+          overloaded = ["+", "*", "make-string", "make-vector"]
        in if
-              | L.elem pn ["+", "*"] -> pn <> PName ("", fromString $ show len)
-              | L.elem pn ["make-string", "make-vector"] -> pn <> PName ("", fromString $ show len)
+              -- len will either be 0 or 1 for +/*, since we unify before overloading
+              | L.elem pn overloaded -> pn <> PName ("", len)
               | otherwise -> pn
-
 
 unify :: Expr UniqName -> Expr UniqName
 unify e = case e of
+  -- Variadic proceduces will use apply
   EApp (AppPrim pn es) | NR.isVariadic pn -> EApp $ AppPrim (PName ("", "apply_") <> pn) [makeConsList es]
+  -- All lambda call sites will use lists as parameters
   EApp (AppLam e es) -> EApp (AppLam e [makeConsList es])
 
+  -- Apply with primitive proceduces will use normall application special apply_ variant of the procedure, taking a list as arg
   EApply (ApplyPrim pn e) -> EApp $ AppPrim (PName ("", "apply_") <> pn) [e]
+  -- Apply with lambda becomes normal application, since all call sites will use lists
   EApply (ApplyLam n e) -> EApp $ AppLam n [e]
 
+  -- All lambdas use lists at call sites, so (lambda _ ...) can become (lambda [_] ...)
   ELam (LamList p b) -> ELam (Lam [p] b)
+  -- (lambda [_ ...] ...) will become (lambda [_] ...). It will now need to properly (car)/(cdr) a specific parameter from it's only parameter, which is a list
+  -- The name "variadicn" is introduced for its parameter, where n is a natural number, which keeps the name unique in respect to the whole ast
   ELam (Lam ps b) ->
-    let newname = makeGloballyUniqueName ("variadic" :: Name) b
+    let newname = makeUniqueName ("variadic" :: Name) b
         al = zip ps [0..]
         b' = getVarsFromList al newname b in
       ELam  (Lam [newname] b')
-
 
   e -> e
 

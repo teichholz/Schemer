@@ -101,7 +101,7 @@ parseExpr = \case
 
   List[Atom "quote", sxp] -> ELit <$> parseQuote sxp
 
-  List[Atom "call\\cc", fn] -> makeCallCC <$> case fn of
+  List[Atom "call-with-current-continuation", fn] -> makeCallCC <$> case fn of
     Atom x | isIdent x -> parseIdent x
     List(Atom "lambda":lam) -> parseLambda lam
     _ -> throwM $ ParseException "Wrong call\\cc"
@@ -124,12 +124,7 @@ parseAtom = \case
 
 -- This is eta-abstraction over identifier which actually are primitives. Consider: (let ((x display)) (x 2))
 parseIdent :: Text -> IO (Expr Name)
-parseIdent x = do
-  return $
-    if isPrim x then
-      makeLamList ("l" :: Name) (makePrimApply x (toExpr ("l" :: Name)))
-    else
-      makeVar (parseLiteral varLiteral x)
+parseIdent x = return $ makeVar (parseLiteral varLiteral x)
 
 parseLit :: Sexp -> IO Literal
 parseLit = \case
@@ -305,6 +300,9 @@ freezeN m = do
   return a
 
 
+-- (QQ (QQ ((UQ (UQS (list 0))))))
+
+
 parseQQ :: Sexp -> IO Sexp
 parseQQ (List[QQ, sexp'@(Atom _)]) = return $ quote sexp' -- Atom case is simple Quote
 parseQQ (List[QQ, List [Atom "vec", l@(List _)]]) = do
@@ -341,6 +339,11 @@ parseQQ (List[QQ, l@(List _)])
 
     qqList _ = error "unreachable"
 
+
+-- (qq ((qq ((uq (uqs (list 0)))))))
+-- (quasiquote ((quasiquote ((unquote (unquote-splicing (list 0)))))))
+-- (list (list 'qq (list (append (list 'uq) (list 0))))
+
     qqSexp :: Sexp -> QQ Sexp
     qqSexp sexp = do
       let _ = List [Atom "quasiquote",List [Atom "0",List [Atom "unquote",List [Atom "+",Atom "1",Atom "2"]],List [Atom "unquote-splicing",List [Atom "list",Atom "0"]]]]
@@ -355,7 +358,7 @@ parseQQ (List[QQ, l@(List _)])
           if nest == 1 then -- check if 1 since decN is not needed, we can just return the sexp
             return a
           else
-            return $ quote $ List [UQS, a]
+            return $ quote sexp
 
         List [UQS, l@(List _)]  -> do
           lift $ putStrLn "UQSL"
@@ -376,7 +379,7 @@ parseQQ (List[QQ, l@(List _)])
           if nest == 1 then -- check if 1 since decN is not needed, we can just return the sexp
             return $ wrap a
           else
-            return $ quote $ List [UQ, a]
+            return $ quote sexp
 
         List [UQ, l@(List _)] -> do
           lift $ putStrLn "UQL"
@@ -399,12 +402,7 @@ parseQQ (List[QQ, l@(List _)])
           else do
             -- We need to consider cases where a modifier follows a modifier, e.g: ,,2.
             sexp <- freezeN $ if isMod l then incN >> qqSexp l else incN >> qqList l
-            if containsUQS l && nest == 2 then
-              -- We need to consider cases like: ,,@(list 0) which becomes:
-              -- (append (list 'unquote) (list 0)) => ,0
-              return $ List [appendFun, wrapInListApp $ quote QQ, sexp]
-            else
-              return $ wrap $ List [listFun, quote QQ, sexp]
+            return $ wrap $ List [listFun, quote QQ, sexp]
 
         List [QQ, Atom _] -> do
           lift $ putStrLn "QQA"
