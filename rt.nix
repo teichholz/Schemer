@@ -7,15 +7,12 @@ stdenv.mkDerivation {
   buildInputs = [ boehmgc ];
   src = fetchFromGitHub { owner = "teichholz";
                           repo = "Schemer-Runtime";
-                          rev = "163ea02";
-                          sha256= "sha256-mwpoe/r+83K3to97Q4T4s7+4RkW9SevZB+FvYVS6PEc="; };
+                          rev = "70c83a8";
+                          sha256 = "sha256-pQIdbvn0MhiX5BY9MEqCMs7+NRSGBS3/oVObKOmumcU="; };
 
   installPhase = ''
     mkdir -p $out/lib
     cp libRuntime.a $out/lib
     cp libRuntime_s.so $out/lib
   '';
-
-  dontPatch = true;
-  doCheck = false;
 }
