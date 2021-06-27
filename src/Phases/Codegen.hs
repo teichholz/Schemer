@@ -440,7 +440,7 @@ callableFnPtr nm' = do
   let nm = toName nm'
   ptr <- fnPtr nm
   let ptr' = case ptr of
-        Nothing -> error ("Function not defined" <> show nm)
+        Nothing -> error ("Function not defined: " <> show nm)
         Just ptr -> ptr
   return $ const (global ptr' nm)
 

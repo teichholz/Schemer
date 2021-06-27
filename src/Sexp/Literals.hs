@@ -15,7 +15,7 @@ import Text.Regex.TDFA as Re
 
 -- Not R5RS conforming
 isIdent :: Text -> Bool
-isIdent = (Re.=~ ("^[a-zA-Z][a-zA-Z0-9]*$" :: String))
+isIdent = (Re.=~ ("^[a-zA-Z].*$" :: String))
 
 isName :: Text -> Bool
 isName t = not (isInt t) && not (isFloat t) && not (isString t) && not (isChar t) && not (isBool t)

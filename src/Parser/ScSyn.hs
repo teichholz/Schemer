@@ -110,7 +110,7 @@ parseExpr = \case
     Atom hd | isPrim hd -> makePrimApp hd <$> parseExprs tl
     Atom hd | isIdent hd -> liftA2 makeLamApp (parseIdent hd) (parseExprs tl)
     List _ -> liftA2 makeLamApp (parseExpr hd) (parseExprs tl)
-    _ -> throwM $ ParseException "Wrong application"
+    x -> throwM $ ParseException $ "Wrong application: " <> show x
 
   Atom x -> parseAtom (Atom x)
 

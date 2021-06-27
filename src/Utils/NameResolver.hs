@@ -79,4 +79,9 @@ getCname str = head $ do
   else []
 
 primsAndAritys :: [(ByteString, Aritys)]
-primsAndAritys = fmap (\(_, snd, thd)-> (snd, thd)) prims
+primsAndAritys = dedup $ fmap (\(_, snd, thd)-> (snd, thd)) prims
+  where
+    dedup :: (Ord a) => [a] -> [a]
+    dedup = L.map head . L.group . L.sort
+
+

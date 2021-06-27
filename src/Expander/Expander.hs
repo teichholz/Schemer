@@ -234,10 +234,6 @@ t stree f = do
 
         -- Binding forms
         -- Define
-        Define arg expr -> do
-          expr' <- t expr f
-          return $ Define arg expr'
-
         Define (Sxp (name:args)) (Sxp es) -> do
           (args', es') <- withVars args $ do
             liftA2 (,) (mapM (`t` f) args) (mapM (`t` f) es)
