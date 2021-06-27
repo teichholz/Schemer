@@ -73,6 +73,6 @@ runApp opts sf = do
             , _procs = procsRef
             , _options = opts
             , _name = "Schemer"
-            , _outputFile = File "../code.o"
+            , _outputFile = File "code.o"
             , _logF = logFunc }
     runRIO state compileAction
